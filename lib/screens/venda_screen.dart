@@ -3,9 +3,7 @@ import '../database/db_helper.dart';
 
 class VendaScreen extends StatefulWidget {
   final Map<String, dynamic>? vendaEdicao;
-
   const VendaScreen({Key? key, this.vendaEdicao}) : super(key: key);
-
   @override
   State<VendaScreen> createState() => _VendaScreenState();
 }
@@ -16,7 +14,6 @@ class _VendaScreenState extends State<VendaScreen> {
   String numeroNota = "Carregando...";
   bool isSaidaAvancada = false;
   double totalVenda = 0.0;
-
   List<Map<String, dynamic>> produtosAtivos = [];
   List<Map<String, dynamic>> clientesAtivos = [];
   List<Map<String, dynamic>> carrinho = [];
@@ -31,17 +28,14 @@ class _VendaScreenState extends State<VendaScreen> {
     final db = await DBHelper().database;
     final prods = await db.query('produtos');
     final clis = await db.query('clientes');
-
     setState(() {
       produtosAtivos = prods;
       clientesAtivos = clis;
     });
 
     if (widget.vendaEdicao != null) {
-      // MODO EDIÇÃO
       numeroNota = widget.vendaEdicao!['numero_nota'];
       isSaidaAvancada = widget.vendaEdicao!['eh_saida_avancada'] == 1;
-
       final cli = clis.firstWhere(
         (c) => c['id'] == widget.vendaEdicao!['cliente_id'],
       );
@@ -73,26 +67,20 @@ class _VendaScreenState extends State<VendaScreen> {
         _calcularTotal();
       });
     } else {
-      // MODO NOVA VENDA: Gera o número sequencial (APP-001, APP-002...)
       final maxQuery = await db.rawQuery(
         'SELECT MAX(id) as max_id FROM vendas',
       );
       int nextId = ((maxQuery.first['max_id'] as int?) ?? 0) + 1;
-      setState(() {
-        numeroNota = "APP-${nextId.toString().padLeft(3, '0')}";
-      });
+      setState(() => numeroNota = "APP-${nextId.toString().padLeft(3, '0')}");
     }
   }
 
   void _calcularTotal() {
     double total = 0;
-    for (var item in carrinho) {
-      total += item['subtotal'];
-    }
+    for (var item in carrinho) total += item['subtotal'];
     setState(() => totalVenda = total);
   }
 
-  // --- NOVO: PERMITE O MOTORISTA DIGITAR O NÚMERO DO TALÃO DE PAPEL ---
   void _editarNumeroNota() {
     TextEditingController notaCtrl = TextEditingController(text: numeroNota);
     showDialog(
@@ -101,10 +89,6 @@ class _VendaScreenState extends State<VendaScreen> {
         title: const Text("Editar Número da Nota"),
         content: TextField(
           controller: notaCtrl,
-          decoration: const InputDecoration(
-            labelText: "Ex: TALÃO-550",
-            border: OutlineInputBorder(),
-          ),
           textCapitalization: TextCapitalization.characters,
         ),
         actions: [
@@ -127,24 +111,11 @@ class _VendaScreenState extends State<VendaScreen> {
   }
 
   void _abrirSelecaoCliente() {
-    if (widget.vendaEdicao != null) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text(
-            "Não é possível trocar o cliente de uma nota já gerada.",
-          ),
-        ),
-      );
-      return;
-    }
+    if (widget.vendaEdicao != null) return;
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => Container(
+      builder: (ctx) => Padding(
         padding: const EdgeInsets.all(16),
-        height: 500,
         child: Column(
           children: [
             const Text(
@@ -158,13 +129,11 @@ class _VendaScreenState extends State<VendaScreen> {
                 itemBuilder: (c, i) {
                   final cli = clientesAtivos[i];
                   return Card(
-                    elevation: 2,
-                    margin: const EdgeInsets.only(bottom: 8),
                     child: ListTile(
                       title: Text(
                         cli['nome'],
                         style: const TextStyle(
-                          fontSize: 20,
+                          fontSize: 18,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
@@ -194,12 +163,8 @@ class _VendaScreenState extends State<VendaScreen> {
   void _abrirSelecaoProduto() {
     showModalBottomSheet(
       context: context,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
-      ),
-      builder: (ctx) => Container(
+      builder: (ctx) => Padding(
         padding: const EdgeInsets.all(16),
-        height: 500,
         child: Column(
           children: [
             const Text(
@@ -213,22 +178,20 @@ class _VendaScreenState extends State<VendaScreen> {
                 itemBuilder: (c, i) {
                   final prod = produtosAtivos[i];
                   return Card(
-                    elevation: 2,
-                    margin: const EdgeInsets.only(bottom: 8),
                     child: ListTile(
                       title: Text(
                         prod['nome'],
                         style: const TextStyle(
-                          fontSize: 20,
+                          fontSize: 18,
                           fontWeight: FontWeight.bold,
                         ),
                       ),
                       subtitle: Text(
                         "R\$ ${prod['preco'].toStringAsFixed(2).replaceAll('.', ',')} / ${prod['tipo_unidade']}",
                       ),
-                      trailing: const Icon(
+                      trailing: Icon(
                         Icons.arrow_forward_ios,
-                        color: Colors.blue,
+                        color: Theme.of(context).colorScheme.primary,
                       ),
                       onTap: () {
                         Navigator.pop(ctx);
@@ -245,7 +208,6 @@ class _VendaScreenState extends State<VendaScreen> {
     );
   }
 
-  // --- ATUALIZADO: AGORA SUPORTA EDIÇÃO DE UM ITEM QUE JÁ ESTÁ NO CARRINHO ---
   void _configurarProduto(
     Map<String, dynamic> produto, {
     int? indexEdicao,
@@ -254,11 +216,6 @@ class _VendaScreenState extends State<VendaScreen> {
     TextEditingController pesoCtrl = TextEditingController(
       text: itemExistente != null
           ? itemExistente['quantidade_kg'].toString()
-          : "",
-    );
-    TextEditingController pecasCtrl = TextEditingController(
-      text: itemExistente != null
-          ? itemExistente['quantidade_pecas'].toString()
           : "",
     );
     TextEditingController precoCtrl = TextEditingController(
@@ -270,108 +227,178 @@ class _VendaScreenState extends State<VendaScreen> {
       text: itemExistente != null ? itemExistente['observacao'] : "",
     );
 
+    // Controlo de estado específico para a quantidade de peças (Fração 0.5)
+    double pecasDouble = 0.0;
+    if (itemExistente != null && itemExistente['quantidade_pecas'] != "") {
+      String pStr = itemExistente['quantidade_pecas'].toString().replaceAll(
+        ',',
+        '.',
+      );
+      pecasDouble = double.tryParse(pStr) ?? 0.0;
+    }
+
     showDialog(
       context: context,
-      builder: (ctx) => AlertDialog(
-        title: Text(
-          indexEdicao != null
-              ? "Editar: ${produto['nome']}"
-              : "Configurar: ${produto['nome']}",
-        ),
-        content: SingleChildScrollView(
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              TextField(
-                controller: pesoCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: "Peso (Kg)*",
-                  border: OutlineInputBorder(),
-                  prefixIcon: Icon(Icons.scale),
-                ),
-                style: const TextStyle(fontSize: 24),
+      builder: (ctx) {
+        return StatefulBuilder(
+          builder: (context, setDialogState) {
+            return AlertDialog(
+              title: Text(
+                indexEdicao != null
+                    ? "Editar: ${produto['nome']}"
+                    : "Configurar: ${produto['nome']}",
               ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: pecasCtrl,
-                decoration: const InputDecoration(
-                  labelText: "Peças/Fração (Opcional)",
-                  border: OutlineInputBorder(),
-                  hintText: "Ex: 1/2",
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: precoCtrl,
-                keyboardType: const TextInputType.numberWithOptions(
-                  decimal: true,
-                ),
-                decoration: const InputDecoration(
-                  labelText: "Preço Unitário (R\$)*",
-                  border: OutlineInputBorder(),
-                  prefixText: "R\$ ",
-                ),
-              ),
-              const SizedBox(height: 12),
-              TextField(
-                controller: obsCtrl,
-                decoration: const InputDecoration(
-                  labelText: "Observação (Opcional)",
-                  border: OutlineInputBorder(),
-                ),
-                textCapitalization: TextCapitalization.sentences,
-              ),
-            ],
-          ),
-        ),
-        actions: [
-          TextButton(
-            onPressed: () => Navigator.pop(ctx),
-            child: const Text("CANCELAR", style: TextStyle(color: Colors.red)),
-          ),
-          ElevatedButton(
-            style: ElevatedButton.styleFrom(backgroundColor: Colors.green),
-            onPressed: () {
-              double peso =
-                  double.tryParse(pesoCtrl.text.replaceAll(',', '.')) ?? 0;
-              double preco =
-                  double.tryParse(precoCtrl.text.replaceAll(',', '.')) ?? 0;
-              if (peso > 0 && preco > 0) {
-                setState(() {
-                  final novoItem = {
-                    "produto_id": produto['id'],
-                    "nome": produto['nome'],
-                    "preco_unitario": preco,
-                    "quantidade_kg": peso,
-                    "quantidade_pecas": pecasCtrl.text,
-                    "observacao": obsCtrl.text,
-                    "subtotal": peso * preco,
-                  };
+              content: SingleChildScrollView(
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    TextField(
+                      controller: pesoCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: "Peso Total (Kg)*",
+                        prefixIcon: Icon(Icons.scale),
+                      ),
+                      style: const TextStyle(fontSize: 24),
+                    ),
+                    const SizedBox(height: 24),
 
-                  if (indexEdicao != null) {
-                    carrinho[indexEdicao] = novoItem; // Edita o existente
-                  } else {
-                    carrinho.add(novoItem); // Adiciona novo
-                  }
+                    // --- STEPPER TÁTIL PARA AS PEÇAS ---
+                    const Align(
+                      alignment: Alignment.centerLeft,
+                      child: Text(
+                        "Quantidade de Peças/Fração",
+                        style: TextStyle(
+                          fontWeight: FontWeight.bold,
+                          color: Colors.blueGrey,
+                        ),
+                      ),
+                    ),
+                    const SizedBox(height: 8),
+                    Container(
+                      padding: const EdgeInsets.symmetric(
+                        vertical: 8,
+                        horizontal: 16,
+                      ),
+                      decoration: BoxDecoration(
+                        color: Theme.of(context).colorScheme.surfaceVariant,
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                        children: [
+                          IconButton(
+                            onPressed: () {
+                              if (pecasDouble > 0) {
+                                setDialogState(() => pecasDouble -= 0.5);
+                              }
+                            },
+                            icon: const Icon(
+                              Icons.remove_circle_outline,
+                              size: 40,
+                              color: Colors.red,
+                            ),
+                          ),
+                          Text(
+                            pecasDouble == 0
+                                ? "Nenhuma"
+                                : (pecasDouble % 1 == 0
+                                      ? pecasDouble.toInt().toString()
+                                      : pecasDouble.toString()),
+                            style: const TextStyle(
+                              fontSize: 28,
+                              fontWeight: FontWeight.bold,
+                            ),
+                          ),
+                          IconButton(
+                            onPressed: () {
+                              setDialogState(() => pecasDouble += 0.5);
+                            },
+                            icon: const Icon(
+                              Icons.add_circle_outline,
+                              size: 40,
+                              color: Colors.green,
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
 
-                  _calcularTotal();
-                });
-                Navigator.pop(ctx);
-              }
-            },
-            child: Text(
-              indexEdicao != null ? "ATUALIZAR" : "ADICIONAR",
-              style: const TextStyle(
-                color: Colors.white,
-                fontWeight: FontWeight.bold,
+                    // -----------------------------------
+                    const SizedBox(height: 24),
+                    TextField(
+                      controller: precoCtrl,
+                      keyboardType: const TextInputType.numberWithOptions(
+                        decimal: true,
+                      ),
+                      decoration: const InputDecoration(
+                        labelText: "Preço Unitário (R\$)*",
+                        prefixText: "R\$ ",
+                      ),
+                    ),
+                    const SizedBox(height: 12),
+                    TextField(
+                      controller: obsCtrl,
+                      decoration: const InputDecoration(
+                        labelText: "Observação (Lote/Letra)",
+                      ),
+                      textCapitalization: TextCapitalization.sentences,
+                    ),
+                  ],
+                ),
               ),
-            ),
-          ),
-        ],
-      ),
+              actions: [
+                TextButton(
+                  onPressed: () => Navigator.pop(ctx),
+                  child: const Text(
+                    "CANCELAR",
+                    style: TextStyle(color: Colors.red),
+                  ),
+                ),
+                ElevatedButton(
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.green,
+                    foregroundColor: Colors.white,
+                  ),
+                  onPressed: () {
+                    double peso =
+                        double.tryParse(pesoCtrl.text.replaceAll(',', '.')) ??
+                        0;
+                    double preco =
+                        double.tryParse(precoCtrl.text.replaceAll(',', '.')) ??
+                        0;
+                    if (peso > 0 && preco > 0) {
+                      setState(() {
+                        final novoItem = {
+                          "produto_id": produto['id'],
+                          "nome": produto['nome'],
+                          "preco_unitario": preco,
+                          "quantidade_kg": peso,
+                          "quantidade_pecas": pecasDouble > 0
+                              ? pecasDouble.toString()
+                              : "",
+                          "observacao": obsCtrl.text.trim(),
+                          "subtotal": peso * preco,
+                        };
+                        if (indexEdicao != null) {
+                          carrinho[indexEdicao] = novoItem;
+                        } else {
+                          carrinho.add(novoItem);
+                        }
+                        _calcularTotal();
+                      });
+                      Navigator.pop(ctx);
+                    }
+                  },
+                  child: Text(indexEdicao != null ? "ATUALIZAR" : "ADICIONAR"),
+                ),
+              ],
+            );
+          },
+        );
+      },
     );
   }
 
@@ -386,30 +413,27 @@ class _VendaScreenState extends State<VendaScreen> {
     if (clienteSelecionado == null || carrinho.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Cliente e produtos são obrigatórios!"),
+          content: Text("Cliente e produtos obrigatórios!"),
           backgroundColor: Colors.red,
         ),
       );
       return;
     }
-
     try {
       final db = await DBHelper().database;
       int vendaId;
-
       if (widget.vendaEdicao != null) {
         vendaId = widget.vendaEdicao!['id'];
         await db.update(
           'vendas',
           {
-            'numero_nota': numeroNota, // Salva se ele editou a nota
+            'numero_nota': numeroNota,
             'valor_total': totalVenda,
             'eh_saida_avancada': isSaidaAvancada ? 1 : 0,
           },
           where: 'id = ?',
           whereArgs: [vendaId],
         );
-
         await db.delete(
           'venda_itens',
           where: 'venda_id = ?',
@@ -425,7 +449,6 @@ class _VendaScreenState extends State<VendaScreen> {
           'status_sincronizacao': 'pendente',
         });
       }
-
       for (var item in carrinho) {
         await db.insert('venda_itens', {
           'venda_id': vendaId,
@@ -437,13 +460,6 @@ class _VendaScreenState extends State<VendaScreen> {
           'subtotal': item['subtotal'],
         });
       }
-
-      ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text("Venda salva com sucesso!"),
-          backgroundColor: Colors.green,
-        ),
-      );
       Navigator.pop(context, true);
     } catch (e) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -457,110 +473,115 @@ class _VendaScreenState extends State<VendaScreen> {
 
   @override
   Widget build(BuildContext context) {
+    final surfaceColor = Theme.of(context).colorScheme.surface;
+    final primaryColor = Theme.of(context).colorScheme.primary;
+
     return Scaffold(
-      backgroundColor: Colors.grey[100],
       appBar: AppBar(
         title: Text(
           widget.vendaEdicao != null ? 'Editando Nota' : 'Nova Venda',
-          style: const TextStyle(fontWeight: FontWeight.bold),
         ),
-        backgroundColor: const Color(0xFF1E293B),
-        foregroundColor: Colors.white,
         actions: [
-          // Botão que permite editar a numeração da nota manualmente
           TextButton.icon(
             onPressed: _editarNumeroNota,
             icon: const Icon(Icons.edit, color: Colors.amber, size: 18),
             label: Text(
               "Nota: $numeroNota",
-              style: const TextStyle(
-                fontSize: 18,
-                fontWeight: FontWeight.bold,
-                color: Colors.amber,
-              ),
+              style: const TextStyle(fontSize: 16, color: Colors.amber),
             ),
           ),
         ],
       ),
       body: Column(
         children: [
-          Container(
-            color: Colors.white,
-            padding: const EdgeInsets.all(16.0),
-            child: Column(
-              children: [
-                InkWell(
-                  onTap: _abrirSelecaoCliente,
-                  child: Container(
-                    padding: const EdgeInsets.all(20),
-                    decoration: BoxDecoration(
-                      border: Border.all(color: Colors.grey[300]!),
-                      borderRadius: BorderRadius.circular(12),
-                      color: clienteSelecionado != null
-                          ? Colors.blue[50]
-                          : Colors.grey[50],
-                    ),
-                    child: Row(
-                      children: [
-                        Icon(
-                          Icons.person_search,
-                          size: 40,
-                          color: clienteSelecionado != null
-                              ? Colors.blue[800]
-                              : Colors.blue,
-                        ),
-                        const SizedBox(width: 16),
-                        Expanded(
-                          child: Text(
-                            nomeCliente,
-                            style: TextStyle(
-                              fontSize: 22,
-                              fontWeight: FontWeight.bold,
-                              color: clienteSelecionado != null
-                                  ? Colors.blue[900]
-                                  : Colors.black87,
+          Card(
+            margin: const EdgeInsets.all(16),
+            child: Padding(
+              padding: const EdgeInsets.all(16.0),
+              child: Column(
+                children: [
+                  InkWell(
+                    onTap: _abrirSelecaoCliente,
+                    borderRadius: BorderRadius.circular(12),
+                    child: Container(
+                      padding: const EdgeInsets.all(16),
+                      decoration: BoxDecoration(
+                        color: clienteSelecionado != null
+                            ? primaryColor.withOpacity(0.1)
+                            : Theme.of(context).dividerColor.withOpacity(0.1),
+                        borderRadius: BorderRadius.circular(12),
+                      ),
+                      child: Row(
+                        children: [
+                          Icon(
+                            Icons.person_search,
+                            size: 36,
+                            color: primaryColor,
+                          ),
+                          const SizedBox(width: 16),
+                          Expanded(
+                            child: Text(
+                              nomeCliente,
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
                             ),
                           ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-                if (clienteSelecionado == null ||
-                    clienteSelecionado!['id'] != 1) ...[
-                  const SizedBox(height: 16),
-                  SwitchListTile(
-                    title: const Text(
-                      "Saída de Estoque Avançado (SEA)",
-                      style: TextStyle(
-                        fontSize: 18,
-                        fontWeight: FontWeight.w600,
+                        ],
                       ),
                     ),
-                    value: isSaidaAvancada,
-                    activeColor: Colors.green,
-                    onChanged: (bool value) =>
-                        setState(() => isSaidaAvancada = value),
                   ),
+                  if (clienteSelecionado == null ||
+                      clienteSelecionado!['id'] != 1) ...[
+                    const SizedBox(height: 16),
+                    SwitchListTile(
+                      title: const Text(
+                        "Saída de Estoque Avançado (SEA)",
+                        style: TextStyle(fontWeight: FontWeight.w600),
+                      ),
+                      value: isSaidaAvancada,
+                      activeColor: Colors.green,
+                      onChanged: (bool value) =>
+                          setState(() => isSaidaAvancada = value),
+                    ),
+                  ],
                 ],
-              ],
+              ),
             ),
           ),
           Expanded(
             child: carrinho.isEmpty
-                ? const Center(child: Text("Nenhum produto adicionado"))
+                ? const Center(
+                    child: Text(
+                      "Nenhum produto adicionado",
+                      style: TextStyle(fontSize: 18, color: Colors.grey),
+                    ),
+                  )
                 : ListView.builder(
-                    padding: const EdgeInsets.all(16),
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
                     itemCount: carrinho.length,
                     itemBuilder: (context, index) {
                       final item = carrinho[index];
-                      // Transformamos o Card em um botão clicável para Edição
+
+                      // Transforma "1.5" em "1 e 1/2 PC" para a visualização no carrinho
+                      String pecasVisuais = "";
+                      if (item['quantidade_pecas'] != "") {
+                        double p =
+                            double.tryParse(item['quantidade_pecas']) ?? 0;
+                        if (p > 0) {
+                          if (p == 0.5)
+                            pecasVisuais = " (1/2 PC)";
+                          else if (p % 1 == 0.5)
+                            pecasVisuais = " (${p.truncate()} e 1/2 PC)";
+                          else
+                            pecasVisuais = " (${p.toInt()} PC)";
+                        }
+                      }
+
                       return Card(
-                        elevation: 3,
-                        margin: const EdgeInsets.only(bottom: 12),
                         child: InkWell(
                           onTap: () {
-                            // Abre a janela de configuração, passando os dados atuais para edição
                             final prodFake = {
                               "id": item['produto_id'],
                               "nome": item['nome'],
@@ -572,21 +593,33 @@ class _VendaScreenState extends State<VendaScreen> {
                               itemExistente: item,
                             );
                           },
-                          child: ListTile(
-                            contentPadding: const EdgeInsets.all(16),
-                            title: Text(
-                              item['nome'],
-                              style: const TextStyle(
-                                fontSize: 22,
-                                fontWeight: FontWeight.bold,
-                              ),
-                            ),
-                            subtitle: Text(
-                              "${item['quantidade_kg'].toString().replaceAll('.', ',')} Kg  x  R\$ ${item['preco_unitario'].toStringAsFixed(2).replaceAll('.', ',')}\nObs: ${item['observacao'].isEmpty ? '-' : item['observacao']}\n(Toque para editar o peso)",
-                            ),
-                            trailing: Row(
-                              mainAxisSize: MainAxisSize.min,
+                          borderRadius: BorderRadius.circular(16),
+                          child: Padding(
+                            padding: const EdgeInsets.all(16.0),
+                            child: Row(
                               children: [
+                                Expanded(
+                                  child: Column(
+                                    crossAxisAlignment:
+                                        CrossAxisAlignment.start,
+                                    children: [
+                                      Text(
+                                        item['nome'],
+                                        style: const TextStyle(
+                                          fontSize: 20,
+                                          fontWeight: FontWeight.bold,
+                                        ),
+                                      ),
+                                      const SizedBox(height: 4),
+                                      Text(
+                                        "${item['quantidade_kg'].toString().replaceAll('.', ',')} Kg$pecasVisuais  x  R\$ ${item['preco_unitario'].toStringAsFixed(2).replaceAll('.', ',')} \nLote/Obs: ${item['observacao'].isEmpty ? '-' : item['observacao']}",
+                                        style: const TextStyle(
+                                          color: Colors.grey,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                                ),
                                 Text(
                                   "R\$ ${item['subtotal'].toStringAsFixed(2).replaceAll('.', ',')}",
                                   style: const TextStyle(
@@ -597,9 +630,9 @@ class _VendaScreenState extends State<VendaScreen> {
                                 ),
                                 IconButton(
                                   icon: const Icon(
-                                    Icons.delete,
+                                    Icons.delete_outline,
                                     color: Colors.red,
-                                    size: 32,
+                                    size: 28,
                                   ),
                                   onPressed: () => _removerItem(index),
                                 ),
@@ -615,21 +648,16 @@ class _VendaScreenState extends State<VendaScreen> {
       ),
       floatingActionButton: FloatingActionButton.extended(
         onPressed: _abrirSelecaoProduto,
-        backgroundColor: Colors.green[600],
-        icon: const Icon(Icons.add, size: 32, color: Colors.white),
-        label: const Text("ADICIONAR PRODUTO"),
+        icon: const Icon(Icons.add),
+        label: const Text("PRODUTO"),
       ),
       bottomNavigationBar: Container(
         padding: const EdgeInsets.all(24.0),
-        decoration: const BoxDecoration(
-          color: Colors.white,
-          boxShadow: [
-            BoxShadow(
-              color: Colors.black12,
-              blurRadius: 10,
-              offset: Offset(0, -5),
-            ),
-          ],
+        decoration: BoxDecoration(
+          color: surfaceColor,
+          border: Border(
+            top: BorderSide(color: Theme.of(context).dividerColor),
+          ),
         ),
         child: Row(
           children: [
@@ -640,7 +668,7 @@ class _VendaScreenState extends State<VendaScreen> {
                 children: [
                   const Text(
                     "Total da Venda",
-                    style: TextStyle(fontSize: 16, color: Colors.grey),
+                    style: TextStyle(color: Colors.grey),
                   ),
                   Text(
                     "R\$ ${totalVenda.toStringAsFixed(2).replaceAll('.', ',')}",
@@ -655,23 +683,10 @@ class _VendaScreenState extends State<VendaScreen> {
             ),
             SizedBox(
               height: 60,
-              width: 200,
+              width: 180,
               child: ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: Colors.blue[700],
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
-                  ),
-                ),
                 onPressed: _salvarVendaLocal,
-                child: const Text(
-                  "SALVAR",
-                  style: TextStyle(
-                    fontSize: 20,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.white,
-                  ),
-                ),
+                child: const Text("SALVAR"),
               ),
             ),
           ],

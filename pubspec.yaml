@@ -45,6 +45,7 @@ dependencies:
   
   # 4. Gerenciamento de Estado (Para atualizar o carrinho em tempo real)
   provider: ^6.1.2
+  intl: ^0.20.2
 
 dev_dependencies:
   flutter_test:

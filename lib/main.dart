@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
-// Importa a nossa tela de vendas
-import 'screens/venda_screen.dart';
+import 'theme/app_theme.dart';
 import 'screens/login_screen.dart';
 
+// Notificador global para o tema
+final ValueNotifier<ThemeMode> themeNotifier = ValueNotifier(ThemeMode.light);
+
 void main() {
+  WidgetsFlutterBinding.ensureInitialized();
   runApp(const BoiDeliveryApp());
 }
 
@@ -12,17 +15,18 @@ class BoiDeliveryApp extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
-      title: 'Boi Delivery',
-      debugShowCheckedModeBanner:
-          false, // Tira aquela faixa de "DEBUG" do canto
-      theme: ThemeData(
-        primarySwatch: Colors.blue,
-        // Define a fonte padrão (opcional, mas deixa bonito)
-        fontFamily: 'Roboto',
-      ),
-      // Aqui nós dizemos para o Flutter: "A primeira tela é a VendaScreen!"
-      home: const LoginScreen(),
+    return ValueListenableBuilder<ThemeMode>(
+      valueListenable: themeNotifier,
+      builder: (_, mode, __) {
+        return MaterialApp(
+          title: 'Boi Delivery ERP',
+          debugShowCheckedModeBanner: false,
+          theme: AppTheme.lightTheme,
+          darkTheme: AppTheme.darkTheme,
+          themeMode: mode, // Controla se é Light ou Dark
+          home: const LoginScreen(),
+        );
+      },
     );
   }
 }
