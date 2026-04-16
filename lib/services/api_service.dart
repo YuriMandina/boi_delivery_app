@@ -4,9 +4,9 @@ import '../database/db_helper.dart';
 
 class ApiService {
   // ATENÇÃO: Substitua pela URL real do seu sistema no Render se necessário
-  // static const String baseUrl = 'https://boidelivery.onrender.com/api/mobile';
-  static const String baseUrl =
-      'http://sdfje-45-71-111-66.run.pinggy-free.link/api/mobile';
+  static const String baseUrl = 'https://boidelivery.onrender.com/api/mobile';
+  // static const String baseUrl =
+  //     'http://sdfje-45-71-111-66.run.pinggy-free.link/api/mobile';
   static const String token = 'Bearer ADM159010adm';
 
   // --- Função que baixa os dados da nuvem e salva no tablet ---
@@ -83,9 +83,10 @@ class ApiService {
       for (var item in itens) {
         itensPayload.add({
           "produto_id": item['produto_id'],
-          "quantidade": item['quantidade_kg'],
-          "preco_unitario": item['preco_unitario'],
-          "pecas": item['quantidade_pecas'] ?? "",
+          // CAST PARA STRING: Blinda a precisão decimal durante o transporte HTTP (JSON)
+          "quantidade": item['quantidade_kg']?.toString() ?? "0.0",
+          "preco_unitario": item['preco_unitario']?.toString() ?? "0.0",
+          "pecas": item['quantidade_pecas']?.toString() ?? "",
           "observacao":
               item['observacao'] ?? "", // Campo obrigatório adicionado!
         });

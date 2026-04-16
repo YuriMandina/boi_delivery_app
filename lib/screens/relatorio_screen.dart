@@ -23,17 +23,63 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
     _gerarRelatorio();
   }
 
-  // Função universal para converter decimais em frações visuais (ex: 0.5 -> 1/2)
+  // --- NOVO: Função que ensina o Dart a ler frações em texto ---
+  double _parsePecas(String texto) {
+    if (texto.isEmpty) return 0.0;
+    texto = texto.toLowerCase().replaceAll(',', '.').trim();
+
+    // 1. Tenta conversão direta primeiro (ex: "2" ou "2.5")
+    double? valorDireto = double.tryParse(texto);
+    if (valorDireto != null) return valorDireto;
+
+    // 2. Processa frações com "e" (ex: "1 e 1/2")
+    if (texto.contains(" e ")) {
+      var partes = texto.split(" e ");
+      if (partes.length == 2) {
+        double inteiro = double.tryParse(partes[0]) ?? 0.0;
+        var fracao = partes[1].split("/");
+        if (fracao.length == 2) {
+          double num = double.tryParse(fracao[0]) ?? 0.0;
+          double den = double.tryParse(fracao[1]) ?? 1.0;
+          if (den != 0) return inteiro + (num / den);
+        }
+      }
+    }
+
+    // 3. Processa frações simples (ex: "1/2")
+    if (texto.contains("/")) {
+      var fracao = texto.split("/");
+      if (fracao.length == 2) {
+        double num = double.tryParse(fracao[0]) ?? 0.0;
+        double den = double.tryParse(fracao[1]) ?? 1.0;
+        if (den != 0) return num / den;
+      }
+    }
+
+    return 0.0;
+  }
+
+  // Função universal para converter decimais de volta em frações visuais (ex: 0.5 -> 1/2)
   String _formatarFracao(double valor) {
     if (valor == 0) return "";
     int inteiro = valor.truncate();
     double decimal = valor - inteiro;
 
     if (decimal == 0) return inteiro.toString();
-    if (inteiro == 0 && decimal == 0.5) return "1/2";
-    if (decimal == 0.5) return "$inteiro e 1/2";
 
-    return valor.toStringAsFixed(1).replaceAll('.0', '');
+    String fracaoStr = "";
+    if ((decimal - 0.5).abs() < 0.001) {
+      fracaoStr = "1/2";
+    } else if ((decimal - 0.25).abs() < 0.001) {
+      fracaoStr = "1/4";
+    } else if ((decimal - 0.75).abs() < 0.001) {
+      fracaoStr = "3/4";
+    } else {
+      return valor.toStringAsFixed(2).replaceAll(RegExp(r'\.00$'), '');
+    }
+
+    if (inteiro == 0) return fracaoStr;
+    return "$inteiro e $fracaoStr";
   }
 
   Future<void> _gerarRelatorio() async {
@@ -63,9 +109,10 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
     Map<String, double> mapPesosReis = {};
     Map<String, double> mapPesosMiudos = {};
 
-    int totalPecasReisInteiras = 0;
-    int totalPecasDianteiro = 0;
-    int totalPecasTraseiroOuSerrote = 0;
+    // CORREÇÃO: Transformados em double para não esmagarem as frações (ex: 0.5)
+    double totalPecasReisInteiras = 0.0;
+    double totalPecasDianteiro = 0.0;
+    double totalPecasTraseiroOuSerrote = 0.0;
 
     double totalKgCarcacas = 0.0;
     double totalKgMiudos = 0.0;
@@ -99,12 +146,10 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
         String nomeLower = nomeProduto.toLowerCase();
 
         double qtdKg = (item['quantidade_kg'] as num).toDouble();
-        String pecasStr = (item['quantidade_pecas'] ?? "")
-            .toString()
-            .trim()
-            .replaceAll(',', '.');
-        double pecasDouble = double.tryParse(pecasStr) ?? 0.0;
-        int qtdPecas = pecasDouble.toInt();
+
+        // NOVO: Lê a string e extrai a fração com o nosso novo Parser
+        String pecasStr = (item['quantidade_pecas'] ?? "").toString();
+        double pecasDouble = _parsePecas(pecasStr);
 
         // Variáveis financeiras e de apresentação
         double precoUnit = (item['preco_unitario'] as num).toDouble();
@@ -133,7 +178,8 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
             nomeLower.contains('res')) {
           mapPesosReis[nomeProduto] =
               (mapPesosReis[nomeProduto] ?? 0.0) + qtdKg;
-          totalPecasReisInteiras += qtdPecas;
+          totalPecasReisInteiras +=
+              pecasDouble; // Agora soma o 0.5 perfeitamente!
           totalKgCarcacas += qtdKg;
         } else if (nomeLower.contains('dianteiro') ||
             nomeLower.contains('traseiro') ||
@@ -143,9 +189,9 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
           totalKgCarcacas += qtdKg;
 
           if (nomeLower.contains('dianteiro')) {
-            totalPecasDianteiro += qtdPecas;
+            totalPecasDianteiro += pecasDouble;
           } else {
-            totalPecasTraseiroOuSerrote += qtdPecas;
+            totalPecasTraseiroOuSerrote += pecasDouble;
           }
         } else {
           mapPesosMiudos[nomeProduto] =
@@ -165,14 +211,18 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
       sbDetalhado.writeln(""); // Respiro para o próximo cliente
     }
 
-    int paresCompletos = min(totalPecasDianteiro, totalPecasTraseiroOuSerrote);
+    // CORREÇÃO: Variáveis matemáticas que calculam "pares completos" para formar carcaças
+    double paresCompletos = min(
+      totalPecasDianteiro,
+      totalPecasTraseiroOuSerrote,
+    );
     double reisConvertidosDasPecas = paresCompletos / 2.0;
 
     double totalReisFinal = totalPecasReisInteiras + reisConvertidosDasPecas;
     String textoReisFracao = _formatarFracao(totalReisFinal);
 
-    int sobrasDianteiro = totalPecasDianteiro - paresCompletos;
-    int sobrasTraseiro = totalPecasTraseiroOuSerrote - paresCompletos;
+    double sobrasDianteiro = totalPecasDianteiro - paresCompletos;
+    double sobrasTraseiro = totalPecasTraseiroOuSerrote - paresCompletos;
 
     StringBuffer sb = StringBuffer();
 
@@ -202,9 +252,14 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
     if (sobrasDianteiro > 0 || sobrasTraseiro > 0) {
       sb.writeln("");
       sb.writeln("SOBRAS (PECAS SEM PAR):");
-      if (sobrasDianteiro > 0) sb.writeln("- $sobrasDianteiro DIANTEIRO(S)");
-      if (sobrasTraseiro > 0)
-        sb.writeln("- $sobrasTraseiro TRASEIRO(S)/SERROTE(S)");
+      if (sobrasDianteiro > 0) {
+        sb.writeln("- ${_formatarFracao(sobrasDianteiro)} DIANTEIRO(S)");
+      }
+      if (sobrasTraseiro > 0) {
+        sb.writeln(
+          "- ${_formatarFracao(sobrasTraseiro)} TRASEIRO(S)/SERROTE(S)",
+        );
+      }
     }
     sb.writeln(separadorFraco);
     sb.writeln("");

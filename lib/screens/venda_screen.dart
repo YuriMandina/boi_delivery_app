@@ -14,6 +14,8 @@ class _VendaScreenState extends State<VendaScreen> {
   String numeroNota = "Carregando...";
   bool isSaidaAvancada = false;
   double totalVenda = 0.0;
+  DateTime dataVenda = DateTime.now(); // NOVO: Estado da Data
+
   List<Map<String, dynamic>> produtosAtivos = [];
   List<Map<String, dynamic>> clientesAtivos = [];
   List<Map<String, dynamic>> carrinho = [];
@@ -36,6 +38,12 @@ class _VendaScreenState extends State<VendaScreen> {
     if (widget.vendaEdicao != null) {
       numeroNota = widget.vendaEdicao!['numero_nota'];
       isSaidaAvancada = widget.vendaEdicao!['eh_saida_avancada'] == 1;
+
+      // NOVO: Carrega a data salva no banco caso esteja em edição
+      if (widget.vendaEdicao!['data_venda'] != null) {
+        dataVenda = DateTime.parse(widget.vendaEdicao!['data_venda']);
+      }
+
       final cli = clis.firstWhere(
         (c) => c['id'] == widget.vendaEdicao!['cliente_id'],
       );
@@ -108,6 +116,24 @@ class _VendaScreenState extends State<VendaScreen> {
         ],
       ),
     );
+  }
+
+  // NOVO: Método para exibir o calendário e alterar a data
+  Future<void> _escolherData() async {
+    final DateTime? escolhida = await showDatePicker(
+      context: context,
+      initialDate: dataVenda,
+      firstDate: DateTime(2020),
+      lastDate: DateTime(2100),
+      helpText: "DATA DA VENDA",
+      cancelText: "CANCELAR",
+      confirmText: "CONFIRMAR",
+    );
+    if (escolhida != null && escolhida != dataVenda) {
+      setState(() {
+        dataVenda = escolhida;
+      });
+    }
   }
 
   void _abrirSelecaoCliente() {
@@ -227,14 +253,24 @@ class _VendaScreenState extends State<VendaScreen> {
       text: itemExistente != null ? itemExistente['observacao'] : "",
     );
 
-    // Controlo de estado específico para a quantidade de peças (Fração 0.5)
-    double pecasDouble = 0.0;
+    // --- NOVA LÓGICA DE VALIDAÇÃO: REIS VS OUTROS ---
+    bool isReis =
+        produto['id'] == 1 ||
+        produto['nome'].toString().toLowerCase().contains('reis');
+    double stepVal = isReis ? 0.5 : 1.0; // Reis salta de 0.5, outros de 1 em 1
+    double minVal = isReis
+        ? 0.0
+        : 1.0; // Reis pode ter 0 peças, outros obrigam a 1
+
+    double pecasDouble = minVal; // Inicializa com o mínimo permitido
+
+    // Carrega valor existente, se houver (em caso de edição)
     if (itemExistente != null && itemExistente['quantidade_pecas'] != "") {
       String pStr = itemExistente['quantidade_pecas'].toString().replaceAll(
         ',',
         '.',
       );
-      pecasDouble = double.tryParse(pStr) ?? 0.0;
+      pecasDouble = double.tryParse(pStr) ?? minVal;
     }
 
     showDialog(
@@ -265,14 +301,17 @@ class _VendaScreenState extends State<VendaScreen> {
                     ),
                     const SizedBox(height: 24),
 
-                    // --- STEPPER TÁTIL PARA AS PEÇAS ---
-                    const Align(
+                    // --- STEPPER TÁTIL INTELIGENTE ---
+                    Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        "Quantidade de Peças/Fração",
-                        style: TextStyle(
+                        isReis
+                            ? "Quantidade de Peças (Múltiplos de 1/2)"
+                            : "Quantidade de Peças (Obrigatório Mínimo 1)",
+                        style: const TextStyle(
                           fontWeight: FontWeight.bold,
                           color: Colors.blueGrey,
+                          fontSize: 13,
                         ),
                       ),
                     ),
@@ -291,14 +330,19 @@ class _VendaScreenState extends State<VendaScreen> {
                         children: [
                           IconButton(
                             onPressed: () {
-                              if (pecasDouble > 0) {
-                                setDialogState(() => pecasDouble -= 0.5);
+                              if (pecasDouble - stepVal >= minVal) {
+                                setDialogState(() => pecasDouble -= stepVal);
+                              } else if (pecasDouble > minVal) {
+                                setDialogState(() => pecasDouble = minVal);
                               }
                             },
-                            icon: const Icon(
+                            icon: Icon(
                               Icons.remove_circle_outline,
                               size: 40,
-                              color: Colors.red,
+                              // Fica cinza se já atingiu o mínimo
+                              color: pecasDouble > minVal
+                                  ? Colors.red
+                                  : Colors.grey,
                             ),
                           ),
                           Text(
@@ -314,7 +358,7 @@ class _VendaScreenState extends State<VendaScreen> {
                           ),
                           IconButton(
                             onPressed: () {
-                              setDialogState(() => pecasDouble += 0.5);
+                              setDialogState(() => pecasDouble += stepVal);
                             },
                             icon: const Icon(
                               Icons.add_circle_outline,
@@ -369,28 +413,54 @@ class _VendaScreenState extends State<VendaScreen> {
                     double preco =
                         double.tryParse(precoCtrl.text.replaceAll(',', '.')) ??
                         0;
-                    if (peso > 0 && preco > 0) {
-                      setState(() {
-                        final novoItem = {
-                          "produto_id": produto['id'],
-                          "nome": produto['nome'],
-                          "preco_unitario": preco,
-                          "quantidade_kg": peso,
-                          "quantidade_pecas": pecasDouble > 0
-                              ? pecasDouble.toString()
-                              : "",
-                          "observacao": obsCtrl.text.trim(),
-                          "subtotal": peso * preco,
-                        };
-                        if (indexEdicao != null) {
-                          carrinho[indexEdicao] = novoItem;
-                        } else {
-                          carrinho.add(novoItem);
-                        }
-                        _calcularTotal();
-                      });
-                      Navigator.pop(ctx);
+
+                    // VALIDAÇÕES DE REGRA DE NEGÓCIO DE PREENCHIMENTO
+                    if (peso <= 0 || preco <= 0) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            "O Peso e o Preço são obrigatórios e maiores que zero!",
+                          ),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                      return; // Impede que o modal feche
                     }
+
+                    if (!isReis && pecasDouble < 1.0) {
+                      ScaffoldMessenger.of(context).showSnackBar(
+                        const SnackBar(
+                          content: Text(
+                            "Para este produto é obrigatório informar pelo menos 1 peça!",
+                          ),
+                          backgroundColor: Colors.red,
+                        ),
+                      );
+                      return; // Impede que o modal feche
+                    }
+
+                    setState(() {
+                      final novoItem = {
+                        "produto_id": produto['id'],
+                        "nome": produto['nome'],
+                        "preco_unitario": preco,
+                        "quantidade_kg": peso,
+                        "quantidade_pecas": pecasDouble > 0
+                            ? pecasDouble.toString()
+                            : "",
+                        "observacao": obsCtrl.text.trim(),
+                        "subtotal": peso * preco,
+                      };
+                      if (indexEdicao != null) {
+                        carrinho[indexEdicao] = novoItem;
+                      } else {
+                        carrinho.add(novoItem);
+                      }
+                      _calcularTotal();
+                    });
+                    Navigator.pop(
+                      ctx,
+                    ); // Só fecha o modal se tudo estiver correto
                   },
                   child: Text(indexEdicao != null ? "ATUALIZAR" : "ADICIONAR"),
                 ),
@@ -422,12 +492,15 @@ class _VendaScreenState extends State<VendaScreen> {
     try {
       final db = await DBHelper().database;
       int vendaId;
+
       if (widget.vendaEdicao != null) {
         vendaId = widget.vendaEdicao!['id'];
+        // NOVO: Atualiza a data_venda no update também
         await db.update(
           'vendas',
           {
             'numero_nota': numeroNota,
+            'data_venda': dataVenda.toIso8601String(),
             'valor_total': totalVenda,
             'eh_saida_avancada': isSaidaAvancada ? 1 : 0,
           },
@@ -440,10 +513,11 @@ class _VendaScreenState extends State<VendaScreen> {
           whereArgs: [vendaId],
         );
       } else {
+        // NOVO: Salva a data_venda com a escolhida pelo usuário
         vendaId = await db.insert('vendas', {
           'cliente_id': clienteSelecionado!['id'],
           'numero_nota': numeroNota,
-          'data_venda': DateTime.now().toIso8601String(),
+          'data_venda': dataVenda.toIso8601String(),
           'valor_total': totalVenda,
           'eh_saida_avancada': isSaidaAvancada ? 1 : 0,
           'status_sincronizacao': 'pendente',
@@ -532,10 +606,28 @@ class _VendaScreenState extends State<VendaScreen> {
                       ),
                     ),
                   ),
+                  const SizedBox(height: 12),
+
+                  // NOVO: Botão/Lista para escolher a data da venda
+                  ListTile(
+                    contentPadding: EdgeInsets.zero,
+                    leading: Icon(Icons.calendar_month, color: primaryColor),
+                    title: Text(
+                      "Data da Venda: ${dataVenda.day.toString().padLeft(2, '0')}/${dataVenda.month.toString().padLeft(2, '0')}/${dataVenda.year}",
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 16,
+                      ),
+                    ),
+                    trailing: const Icon(Icons.edit, color: Colors.grey),
+                    onTap: _escolherData,
+                  ),
+
                   if (clienteSelecionado == null ||
                       clienteSelecionado!['id'] != 1) ...[
-                    const SizedBox(height: 16),
+                    const Divider(),
                     SwitchListTile(
+                      contentPadding: EdgeInsets.zero,
                       title: const Text(
                         "Saída de Estoque Avançado (SEA)",
                         style: TextStyle(fontWeight: FontWeight.w600),
