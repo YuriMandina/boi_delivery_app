@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'dart:math';
 import '../database/db_helper.dart';
+import '../utils/formatters.dart';
 
 class RelatorioScreen extends StatefulWidget {
   final DateTime dataRelatorio;
@@ -17,22 +18,22 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
   bool isLoading = true;
   String reciboTexto = "";
 
+  // Arquitetura de Layout: 48 Colunas
+  final int _maxColunas = 48;
+
   @override
   void initState() {
     super.initState();
     _gerarRelatorio();
   }
 
-  // --- NOVO: Função que ensina o Dart a ler frações em texto ---
   double _parsePecas(String texto) {
     if (texto.isEmpty) return 0.0;
     texto = texto.toLowerCase().replaceAll(',', '.').trim();
 
-    // 1. Tenta conversão direta primeiro (ex: "2" ou "2.5")
     double? valorDireto = double.tryParse(texto);
     if (valorDireto != null) return valorDireto;
 
-    // 2. Processa frações com "e" (ex: "1 e 1/2")
     if (texto.contains(" e ")) {
       var partes = texto.split(" e ");
       if (partes.length == 2) {
@@ -46,7 +47,6 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
       }
     }
 
-    // 3. Processa frações simples (ex: "1/2")
     if (texto.contains("/")) {
       var fracao = texto.split("/");
       if (fracao.length == 2) {
@@ -59,7 +59,6 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
     return 0.0;
   }
 
-  // Função universal para converter decimais de volta em frações visuais (ex: 0.5 -> 1/2)
   String _formatarFracao(double valor) {
     if (valor == 0) return "";
     int inteiro = valor.truncate();
@@ -109,7 +108,6 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
     Map<String, double> mapPesosReis = {};
     Map<String, double> mapPesosMiudos = {};
 
-    // CORREÇÃO: Transformados em double para não esmagarem as frações (ex: 0.5)
     double totalPecasReisInteiras = 0.0;
     double totalPecasDianteiro = 0.0;
     double totalPecasTraseiroOuSerrote = 0.0;
@@ -119,14 +117,34 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
     double totalGeralKg = 0.0;
 
     StringBuffer sbDetalhado = StringBuffer();
-    String separadorForte = "=" * 40;
-    String separadorFraco = "-" * 40;
+    String sepForte = "=" * _maxColunas;
+    String sepFraco = "-" * _maxColunas;
 
-    // Constrói o Relatório Detalhado (que será anexado no final)
+    // ================= CONSTRUÇÃO DO RELATÓRIO DETALHADO =================
+    bool isPrimeiraNota = true; // Controlador do separador
+
     for (var venda in vendas) {
+      // AQUI: Injeta um separador visual forte antes do próximo cliente (exceto no primeiro)
+      if (!isPrimeiraNota) {
+        sbDetalhado.writeln(sepForte);
+        sbDetalhado.writeln("");
+      }
+      isPrimeiraNota = false;
+
       String nomeCliente = clientesMap[venda['cliente_id']] ?? 'Desconhecido';
+      String numNotaFormatado = venda['numero_nota'].toString().replaceAll(
+        'APP-',
+        '',
+      );
+
       sbDetalhado.writeln("CLIENTE: $nomeCliente");
-      sbDetalhado.writeln("NOTA...: ${venda['numero_nota']}");
+      sbDetalhado.writeln("NOTA...: $numNotaFormatado");
+      sbDetalhado.writeln(sepFraco);
+
+      String headerInfo =
+          "${'QTD(KG)'.padRight(14)}${'PECAS'.padRight(12)}${'V.UN'.padLeft(9)}${'TOTAL'.padLeft(13)}";
+      sbDetalhado.writeln(headerInfo);
+      sbDetalhado.writeln(sepFraco);
 
       final itens = await db.query(
         'venda_itens',
@@ -146,40 +164,34 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
         String nomeLower = nomeProduto.toLowerCase();
 
         double qtdKg = (item['quantidade_kg'] as num).toDouble();
-
-        // NOVO: Lê a string e extrai a fração com o nosso novo Parser
         String pecasStr = (item['quantidade_pecas'] ?? "").toString();
         double pecasDouble = _parsePecas(pecasStr);
 
-        // Variáveis financeiras e de apresentação
         double precoUnit = (item['preco_unitario'] as num).toDouble();
         double subtotal = (item['subtotal'] as num).toDouble();
         String obs = item['observacao']?.toString().trim() ?? "";
         String obsFormatada = obs.isNotEmpty ? " [Lote: $obs]" : "";
 
-        // Aplica a fração nas peças do detalhado e coloca antes do peso
-        String pecasFormatadas = _formatarFracao(pecasDouble);
-        String infoPecas = pecasFormatadas.isNotEmpty
-            ? "($pecasFormatadas PC) "
-            : "";
-
         sbDetalhado.writeln("- $nomeProduto$obsFormatada");
-        sbDetalhado.writeln(
-          _formatarLinhaImpressao(
-            "  $infoPecas${qtdKg.toStringAsFixed(2)} KG x R\$${precoUnit.toStringAsFixed(2)}",
-            "R\$ ${subtotal.toStringAsFixed(2)}",
-          ),
-        );
+
+        String sKg = AppFormatters.peso(qtdKg);
+        String sPc = _formatarFracao(pecasDouble);
+        String sPr = AppFormatters.dinheiro(precoUnit);
+        String sSub = AppFormatters.dinheiro(subtotal);
+
+        String linhaValores =
+            "${sKg.padRight(14)}${sPc.padRight(12)}${sPr.padLeft(9)}${sSub.padLeft(13)}";
+        sbDetalhado.writeln(linhaValores);
+
+        sbDetalhado.writeln("");
 
         totalGeralKg += qtdKg;
-
         if (nomeLower.contains('reis') ||
             nomeLower.contains('rês') ||
             nomeLower.contains('res')) {
           mapPesosReis[nomeProduto] =
               (mapPesosReis[nomeProduto] ?? 0.0) + qtdKg;
-          totalPecasReisInteiras +=
-              pecasDouble; // Agora soma o 0.5 perfeitamente!
+          totalPecasReisInteiras += pecasDouble;
           totalKgCarcacas += qtdKg;
         } else if (nomeLower.contains('dianteiro') ||
             nomeLower.contains('traseiro') ||
@@ -187,7 +199,6 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
           mapPesosReis[nomeProduto] =
               (mapPesosReis[nomeProduto] ?? 0.0) + qtdKg;
           totalKgCarcacas += qtdKg;
-
           if (nomeLower.contains('dianteiro')) {
             totalPecasDianteiro += pecasDouble;
           } else {
@@ -201,17 +212,18 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
       }
 
       double totalDaNota = (venda['valor_total'] as num).toDouble();
-      sbDetalhado.writeln(separadorFraco);
+      sbDetalhado.writeln(sepFraco);
       sbDetalhado.writeln(
-        _formatarLinhaImpressao(
+        _alinharDuas(
           "TOTAL DA NOTA:",
-          "R\$ ${totalDaNota.toStringAsFixed(2)}",
+          "R\$ ${AppFormatters.dinheiro(totalDaNota)}",
+          _maxColunas,
         ),
       );
-      sbDetalhado.writeln(""); // Respiro para o próximo cliente
+      sbDetalhado.writeln("");
     }
 
-    // CORREÇÃO: Variáveis matemáticas que calculam "pares completos" para formar carcaças
+    // Cálculos de Resumo de Peças
     double paresCompletos = min(
       totalPecasDianteiro,
       totalPecasTraseiroOuSerrote,
@@ -227,108 +239,108 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
     StringBuffer sb = StringBuffer();
 
     // ================= RESUMO GERAL DA ROTA =================
-    sb.writeln(separadorForte);
-    sb.writeln("              BOI DELIVERY");
-    sb.writeln("           FECHAMENTO DE ROTA");
-    sb.writeln(separadorForte);
+    sb.writeln(sepForte);
+    sb.writeln(_centralizar("BOI DELIVERY", _maxColunas));
+    sb.writeln(_centralizar("FECHAMENTO DE ROTA", _maxColunas));
+    sb.writeln(sepForte);
     sb.writeln(
-      "DATA: ${DateFormat('dd/MM/yyyy').format(widget.dataRelatorio)}",
+      "DATA...: ${DateFormat('dd/MM/yyyy').format(widget.dataRelatorio)}",
     );
     sb.writeln("EMISSAO: ${DateFormat('HH:mm').format(DateTime.now())}");
-    sb.writeln(separadorFraco);
+    sb.writeln(sepFraco);
     sb.writeln("");
 
     // SECÇÃO 1
     sb.writeln("1. CONVERSAO DE REIS (CASSE)");
-    sb.writeln(separadorFraco);
+    sb.writeln(sepFraco);
     if (totalReisFinal > 0) {
       sb.writeln(
-        _formatarLinhaImpressao("TOTAL VENDIDO:", "$textoReisFracao REIS"),
+        _alinharDuas("TOTAL VENDIDO:", "$textoReisFracao REIS", _maxColunas),
       );
     } else {
-      sb.writeln(_formatarLinhaImpressao("TOTAL VENDIDO:", "NENHUMA RES"));
+      sb.writeln(_alinharDuas("TOTAL VENDIDO:", "NENHUMA RES", _maxColunas));
     }
 
     if (sobrasDianteiro > 0 || sobrasTraseiro > 0) {
       sb.writeln("");
       sb.writeln("SOBRAS (PECAS SEM PAR):");
-      if (sobrasDianteiro > 0) {
+      if (sobrasDianteiro > 0)
         sb.writeln("- ${_formatarFracao(sobrasDianteiro)} DIANTEIRO(S)");
-      }
-      if (sobrasTraseiro > 0) {
+      if (sobrasTraseiro > 0)
         sb.writeln(
           "- ${_formatarFracao(sobrasTraseiro)} TRASEIRO(S)/SERROTE(S)",
         );
-      }
     }
-    sb.writeln(separadorFraco);
+    sb.writeln(sepFraco);
     sb.writeln("");
 
     // SECÇÃO 2
     sb.writeln("2. RESUMO DE KG: CARCACAS BOVINAS");
-    sb.writeln(separadorFraco);
+    sb.writeln(sepFraco);
     if (mapPesosReis.isEmpty) {
       sb.writeln("Nenhuma carcaca movimentada.");
     } else {
       mapPesosReis.forEach((nome, kg) {
         sb.writeln(
-          _formatarLinhaImpressao(nome, "${kg.toStringAsFixed(2)} KG"),
+          _alinharDuas(nome, "${AppFormatters.peso(kg)} KG", _maxColunas),
         );
       });
-      sb.writeln(separadorFraco);
+      sb.writeln(sepFraco);
       sb.writeln(
-        _formatarLinhaImpressao(
+        _alinharDuas(
           "SUBTOTAL CARCACAS:",
-          "${totalKgCarcacas.toStringAsFixed(2)} KG",
+          "${AppFormatters.peso(totalKgCarcacas)} KG",
+          _maxColunas,
         ),
       );
     }
-    sb.writeln(separadorFraco);
+    sb.writeln(sepFraco);
     sb.writeln("");
 
     // SECÇÃO 3
     sb.writeln("3. RESUMO DE KG: CORTES AVULSOS / MIUDOS");
-    sb.writeln(separadorFraco);
+    sb.writeln(sepFraco);
     if (mapPesosMiudos.isEmpty) {
       sb.writeln("Nenhum corte avulso movimentado.");
     } else {
       mapPesosMiudos.forEach((nome, kg) {
         sb.writeln(
-          _formatarLinhaImpressao(nome, "${kg.toStringAsFixed(2)} KG"),
+          _alinharDuas(nome, "${AppFormatters.peso(kg)} KG", _maxColunas),
         );
       });
-      sb.writeln(separadorFraco);
+      sb.writeln(sepFraco);
       sb.writeln(
-        _formatarLinhaImpressao(
+        _alinharDuas(
           "SUBTOTAL MIUDOS:",
-          "${totalKgMiudos.toStringAsFixed(2)} KG",
+          "${AppFormatters.peso(totalKgMiudos)} KG",
+          _maxColunas,
         ),
       );
     }
 
     // FECHAMENTO DO RESUMO (Total Geral)
-    sb.writeln(separadorForte);
-    sb.writeln("TOTAL GERAL DE PESO:");
+    sb.writeln(sepForte);
     sb.writeln(
-      "                            ${totalGeralKg.toStringAsFixed(2)} KG",
+      _alinharDuas(
+        "TOTAL GERAL DE PESO:",
+        "${AppFormatters.peso(totalGeralKg)} KG",
+        _maxColunas,
+      ),
     );
-    sb.writeln(separadorForte);
-    sb.writeln("");
-    sb.writeln("");
+    sb.writeln(sepForte);
+    sb.writeln("\n\n");
 
-    // ================= RELATÓRIO DETALHADO =================
-    sb.writeln(separadorForte);
-    sb.writeln("       RELATORIO DETALHADO POR CLIENTE");
-    sb.writeln(separadorForte);
+    // ================= ANEXANDO RELATÓRIO DETALHADO =================
+    sb.writeln(sepForte);
+    sb.writeln(_centralizar("RELATORIO DETALHADO POR CLIENTE", _maxColunas));
+    sb.writeln(sepForte);
     sb.writeln("");
 
     sb.write(sbDetalhado.toString());
 
-    sb.writeln(separadorForte);
-    sb.writeln("");
-    sb.writeln("");
-    sb.writeln("    ________________________________");
-    sb.writeln("                ASSINATURA");
+    sb.writeln(sepForte);
+    sb.writeln("\n\n${_centralizar("-" * 35, _maxColunas)}");
+    sb.writeln(_centralizar("ASSINATURA", _maxColunas));
     sb.writeln("");
 
     setState(() {
@@ -337,19 +349,16 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
     });
   }
 
-  String _formatarLinhaImpressao(
-    String item,
-    String valor, {
-    int tamanhoMax = 40,
-  }) {
-    String itemName = item.length > (tamanhoMax - valor.length - 1)
-        ? item.substring(0, (tamanhoMax - valor.length - 1))
-        : item;
-
-    int espacos = tamanhoMax - itemName.length - valor.length;
+  String _alinharDuas(String esquerda, String direita, int max) {
+    int espacos = max - esquerda.length - direita.length;
     if (espacos < 1) espacos = 1;
+    return "$esquerda${" " * espacos}$direita";
+  }
 
-    return "$itemName${" " * espacos}$valor";
+  String _centralizar(String texto, int max) {
+    if (texto.length >= max) return texto;
+    int padding = (max - texto.length) ~/ 2;
+    return "${" " * padding}$texto";
   }
 
   @override
@@ -370,7 +379,7 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
                   horizontal: 16,
                 ),
                 child: Container(
-                  constraints: const BoxConstraints(maxWidth: 400),
+                  constraints: const BoxConstraints(maxWidth: 450),
                   padding: const EdgeInsets.all(24),
                   decoration: BoxDecoration(
                     color: Colors.white,
@@ -382,27 +391,25 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
                       ),
                     ],
                   ),
-                  child: Text(
-                    reciboTexto,
-                    style: const TextStyle(
-                      fontFamily: 'Courier',
-                      fontSize: 12,
-                      fontWeight: FontWeight.bold,
-                      color: Colors.black,
-                      height: 1.2,
+                  child: FittedBox(
+                    fit: BoxFit.scaleDown,
+                    alignment: Alignment.center,
+                    child: Text(
+                      reciboTexto,
+                      style: const TextStyle(
+                        fontFamily: 'Courier',
+                        fontSize: 14,
+                        fontWeight: FontWeight.bold,
+                        color: Colors.black,
+                        height: 1.6,
+                      ),
                     ),
                   ),
                 ),
               ),
             ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {
-          ScaffoldMessenger.of(context).showSnackBar(
-            const SnackBar(
-              content: Text("Aguardando impressora fisica para pareamento."),
-            ),
-          );
-        },
+        onPressed: () {},
         icon: const Icon(Icons.print),
         label: const Text("TESTAR IMPRESSORA"),
         backgroundColor: Colors.blueGrey[900],
