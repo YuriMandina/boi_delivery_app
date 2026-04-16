@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import '../database/db_helper.dart';
+import '../utils/formatters.dart';
 
 class VendaScreen extends StatefulWidget {
   final Map<String, dynamic>? vendaEdicao;
@@ -14,7 +15,7 @@ class _VendaScreenState extends State<VendaScreen> {
   String numeroNota = "Carregando...";
   bool isSaidaAvancada = false;
   double totalVenda = 0.0;
-  DateTime dataVenda = DateTime.now(); // NOVO: Estado da Data
+  DateTime dataVenda = DateTime.now();
 
   List<Map<String, dynamic>> produtosAtivos = [];
   List<Map<String, dynamic>> clientesAtivos = [];
@@ -39,7 +40,6 @@ class _VendaScreenState extends State<VendaScreen> {
       numeroNota = widget.vendaEdicao!['numero_nota'];
       isSaidaAvancada = widget.vendaEdicao!['eh_saida_avancada'] == 1;
 
-      // NOVO: Carrega a data salva no banco caso esteja em edição
       if (widget.vendaEdicao!['data_venda'] != null) {
         dataVenda = DateTime.parse(widget.vendaEdicao!['data_venda']);
       }
@@ -79,7 +79,9 @@ class _VendaScreenState extends State<VendaScreen> {
         'SELECT MAX(id) as max_id FROM vendas',
       );
       int nextId = ((maxQuery.first['max_id'] as int?) ?? 0) + 1;
-      setState(() => numeroNota = "APP-${nextId.toString().padLeft(3, '0')}");
+
+      // ALTERAÇÃO: Removido o prefixo "APP-" e ajustado para 4 dígitos para melhor leitura
+      setState(() => numeroNota = nextId.toString().padLeft(4, '0'));
     }
   }
 
@@ -98,6 +100,7 @@ class _VendaScreenState extends State<VendaScreen> {
         content: TextField(
           controller: notaCtrl,
           textCapitalization: TextCapitalization.characters,
+          keyboardType: TextInputType.number,
         ),
         actions: [
           TextButton(
@@ -118,7 +121,6 @@ class _VendaScreenState extends State<VendaScreen> {
     );
   }
 
-  // NOVO: Método para exibir o calendário e alterar a data
   Future<void> _escolherData() async {
     final DateTime? escolhida = await showDatePicker(
       context: context,
@@ -126,12 +128,19 @@ class _VendaScreenState extends State<VendaScreen> {
       firstDate: DateTime(2020),
       lastDate: DateTime(2100),
       helpText: "DATA DA VENDA",
-      cancelText: "CANCELAR",
-      confirmText: "CONFIRMAR",
     );
-    if (escolhida != null && escolhida != dataVenda) {
+
+    if (escolhida != null) {
       setState(() {
-        dataVenda = escolhida;
+        // CORREÇÃO: Preserva a hora, minuto e segundo originais ao alterar a data
+        dataVenda = DateTime(
+          escolhida.year,
+          escolhida.month,
+          escolhida.day,
+          dataVenda.hour,
+          dataVenda.minute,
+          dataVenda.second,
+        );
       });
     }
   }
@@ -213,7 +222,7 @@ class _VendaScreenState extends State<VendaScreen> {
                         ),
                       ),
                       subtitle: Text(
-                        "R\$ ${prod['preco'].toStringAsFixed(2).replaceAll('.', ',')} / ${prod['tipo_unidade']}",
+                        "R\$ ${AppFormatters.dinheiro((prod['preco'] as num).toDouble())} / ${prod['tipo_unidade']}",
                       ),
                       trailing: Icon(
                         Icons.arrow_forward_ios,
@@ -253,18 +262,14 @@ class _VendaScreenState extends State<VendaScreen> {
       text: itemExistente != null ? itemExistente['observacao'] : "",
     );
 
-    // --- NOVA LÓGICA DE VALIDAÇÃO: REIS VS OUTROS ---
     bool isReis =
         produto['id'] == 1 ||
         produto['nome'].toString().toLowerCase().contains('reis');
-    double stepVal = isReis ? 0.5 : 1.0; // Reis salta de 0.5, outros de 1 em 1
-    double minVal = isReis
-        ? 0.0
-        : 1.0; // Reis pode ter 0 peças, outros obrigam a 1
+    double stepVal = isReis ? 0.5 : 1.0;
+    double minVal = isReis ? 0.0 : 1.0;
 
-    double pecasDouble = minVal; // Inicializa com o mínimo permitido
+    double pecasDouble = minVal;
 
-    // Carrega valor existente, se houver (em caso de edição)
     if (itemExistente != null && itemExistente['quantidade_pecas'] != "") {
       String pStr = itemExistente['quantidade_pecas'].toString().replaceAll(
         ',',
@@ -300,8 +305,6 @@ class _VendaScreenState extends State<VendaScreen> {
                       style: const TextStyle(fontSize: 24),
                     ),
                     const SizedBox(height: 24),
-
-                    // --- STEPPER TÁTIL INTELIGENTE ---
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
@@ -332,14 +335,11 @@ class _VendaScreenState extends State<VendaScreen> {
                             onPressed: () {
                               if (pecasDouble - stepVal >= minVal) {
                                 setDialogState(() => pecasDouble -= stepVal);
-                              } else if (pecasDouble > minVal) {
-                                setDialogState(() => pecasDouble = minVal);
                               }
                             },
                             icon: Icon(
                               Icons.remove_circle_outline,
                               size: 40,
-                              // Fica cinza se já atingiu o mínimo
                               color: pecasDouble > minVal
                                   ? Colors.red
                                   : Colors.grey,
@@ -357,9 +357,8 @@ class _VendaScreenState extends State<VendaScreen> {
                             ),
                           ),
                           IconButton(
-                            onPressed: () {
-                              setDialogState(() => pecasDouble += stepVal);
-                            },
+                            onPressed: () =>
+                                setDialogState(() => pecasDouble += stepVal),
                             icon: const Icon(
                               Icons.add_circle_outline,
                               size: 40,
@@ -369,8 +368,6 @@ class _VendaScreenState extends State<VendaScreen> {
                         ],
                       ),
                     ),
-
-                    // -----------------------------------
                     const SizedBox(height: 24),
                     TextField(
                       controller: precoCtrl,
@@ -414,29 +411,13 @@ class _VendaScreenState extends State<VendaScreen> {
                         double.tryParse(precoCtrl.text.replaceAll(',', '.')) ??
                         0;
 
-                    // VALIDAÇÕES DE REGRA DE NEGÓCIO DE PREENCHIMENTO
                     if (peso <= 0 || preco <= 0) {
                       ScaffoldMessenger.of(context).showSnackBar(
                         const SnackBar(
-                          content: Text(
-                            "O Peso e o Preço são obrigatórios e maiores que zero!",
-                          ),
-                          backgroundColor: Colors.red,
+                          content: Text("O Peso e o Preço são obrigatórios!"),
                         ),
                       );
-                      return; // Impede que o modal feche
-                    }
-
-                    if (!isReis && pecasDouble < 1.0) {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(
-                          content: Text(
-                            "Para este produto é obrigatório informar pelo menos 1 peça!",
-                          ),
-                          backgroundColor: Colors.red,
-                        ),
-                      );
-                      return; // Impede que o modal feche
+                      return;
                     }
 
                     setState(() {
@@ -458,9 +439,7 @@ class _VendaScreenState extends State<VendaScreen> {
                       }
                       _calcularTotal();
                     });
-                    Navigator.pop(
-                      ctx,
-                    ); // Só fecha o modal se tudo estiver correto
+                    Navigator.pop(ctx);
                   },
                   child: Text(indexEdicao != null ? "ATUALIZAR" : "ADICIONAR"),
                 ),
@@ -483,7 +462,7 @@ class _VendaScreenState extends State<VendaScreen> {
     if (clienteSelecionado == null || carrinho.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
         const SnackBar(
-          content: Text("Cliente e produtos obrigatórios!"),
+          content: Text("Preencha todos os dados!"),
           backgroundColor: Colors.red,
         ),
       );
@@ -495,7 +474,6 @@ class _VendaScreenState extends State<VendaScreen> {
 
       if (widget.vendaEdicao != null) {
         vendaId = widget.vendaEdicao!['id'];
-        // NOVO: Atualiza a data_venda no update também
         await db.update(
           'vendas',
           {
@@ -513,7 +491,6 @@ class _VendaScreenState extends State<VendaScreen> {
           whereArgs: [vendaId],
         );
       } else {
-        // NOVO: Salva a data_venda com a escolhida pelo usuário
         vendaId = await db.insert('vendas', {
           'cliente_id': clienteSelecionado!['id'],
           'numero_nota': numeroNota,
@@ -536,12 +513,9 @@ class _VendaScreenState extends State<VendaScreen> {
       }
       Navigator.pop(context, true);
     } catch (e) {
-      ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(
-          content: Text("Erro ao salvar: $e"),
-          backgroundColor: Colors.red,
-        ),
-      );
+      ScaffoldMessenger.of(
+        context,
+      ).showSnackBar(SnackBar(content: Text("Erro: $e")));
     }
   }
 
@@ -582,7 +556,7 @@ class _VendaScreenState extends State<VendaScreen> {
                       decoration: BoxDecoration(
                         color: clienteSelecionado != null
                             ? primaryColor.withOpacity(0.1)
-                            : Theme.of(context).dividerColor.withOpacity(0.1),
+                            : Colors.grey.withOpacity(0.1),
                         borderRadius: BorderRadius.circular(12),
                       ),
                       child: Row(
@@ -606,38 +580,27 @@ class _VendaScreenState extends State<VendaScreen> {
                       ),
                     ),
                   ),
-                  const SizedBox(height: 12),
-
-                  // NOVO: Botão/Lista para escolher a data da venda
                   ListTile(
                     contentPadding: EdgeInsets.zero,
                     leading: Icon(Icons.calendar_month, color: primaryColor),
                     title: Text(
-                      "Data da Venda: ${dataVenda.day.toString().padLeft(2, '0')}/${dataVenda.month.toString().padLeft(2, '0')}/${dataVenda.year}",
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 16,
-                      ),
+                      "Data: ${dataVenda.day}/${dataVenda.month}/${dataVenda.year}",
+                      style: const TextStyle(fontWeight: FontWeight.bold),
                     ),
-                    trailing: const Icon(Icons.edit, color: Colors.grey),
                     onTap: _escolherData,
                   ),
-
                   if (clienteSelecionado == null ||
-                      clienteSelecionado!['id'] != 1) ...[
-                    const Divider(),
+                      clienteSelecionado!['id'] != 1)
                     SwitchListTile(
                       contentPadding: EdgeInsets.zero,
                       title: const Text(
-                        "Saída de Estoque Avançado (SEA)",
+                        "SEA (Saída Avançada)",
                         style: TextStyle(fontWeight: FontWeight.w600),
                       ),
                       value: isSaidaAvancada,
-                      activeColor: Colors.green,
                       onChanged: (bool value) =>
                           setState(() => isSaidaAvancada = value),
                     ),
-                  ],
                 ],
               ),
             ),
@@ -655,37 +618,24 @@ class _VendaScreenState extends State<VendaScreen> {
                     itemCount: carrinho.length,
                     itemBuilder: (context, index) {
                       final item = carrinho[index];
-
-                      // Transforma "1.5" em "1 e 1/2 PC" para a visualização no carrinho
                       String pecasVisuais = "";
                       if (item['quantidade_pecas'] != "") {
                         double p =
                             double.tryParse(item['quantidade_pecas']) ?? 0;
-                        if (p > 0) {
-                          if (p == 0.5)
-                            pecasVisuais = " (1/2 PC)";
-                          else if (p % 1 == 0.5)
-                            pecasVisuais = " (${p.truncate()} e 1/2 PC)";
-                          else
-                            pecasVisuais = " (${p.toInt()} PC)";
-                        }
+                        if (p > 0) pecasVisuais = " ($p PC)";
                       }
 
                       return Card(
                         child: InkWell(
-                          onTap: () {
-                            final prodFake = {
+                          onTap: () => _configurarProduto(
+                            {
                               "id": item['produto_id'],
                               "nome": item['nome'],
                               "preco": item['preco_unitario'],
-                            };
-                            _configurarProduto(
-                              prodFake,
-                              indexEdicao: index,
-                              itemExistente: item,
-                            );
-                          },
-                          borderRadius: BorderRadius.circular(16),
+                            },
+                            indexEdicao: index,
+                            itemExistente: item,
+                          ),
                           child: Padding(
                             padding: const EdgeInsets.all(16.0),
                             child: Row(
@@ -702,9 +652,8 @@ class _VendaScreenState extends State<VendaScreen> {
                                           fontWeight: FontWeight.bold,
                                         ),
                                       ),
-                                      const SizedBox(height: 4),
                                       Text(
-                                        "${item['quantidade_kg'].toString().replaceAll('.', ',')} Kg$pecasVisuais  x  R\$ ${item['preco_unitario'].toStringAsFixed(2).replaceAll('.', ',')} \nLote/Obs: ${item['observacao'].isEmpty ? '-' : item['observacao']}",
+                                        "${AppFormatters.peso((item['quantidade_kg'] as num).toDouble())} Kg$pecasVisuais  x  R\$ ${AppFormatters.dinheiro((item['preco_unitario'] as num).toDouble())} \nLote/Obs: ${item['observacao'].isEmpty ? '-' : item['observacao']}",
                                         style: const TextStyle(
                                           color: Colors.grey,
                                         ),
@@ -713,7 +662,7 @@ class _VendaScreenState extends State<VendaScreen> {
                                   ),
                                 ),
                                 Text(
-                                  "R\$ ${item['subtotal'].toStringAsFixed(2).replaceAll('.', ',')}",
+                                  "R\$ ${AppFormatters.dinheiro((item['subtotal'] as num).toDouble())}",
                                   style: const TextStyle(
                                     fontSize: 22,
                                     fontWeight: FontWeight.bold,
@@ -724,7 +673,6 @@ class _VendaScreenState extends State<VendaScreen> {
                                   icon: const Icon(
                                     Icons.delete_outline,
                                     color: Colors.red,
-                                    size: 28,
                                   ),
                                   onPressed: () => _removerItem(index),
                                 ),
@@ -763,7 +711,7 @@ class _VendaScreenState extends State<VendaScreen> {
                     style: TextStyle(color: Colors.grey),
                   ),
                   Text(
-                    "R\$ ${totalVenda.toStringAsFixed(2).replaceAll('.', ',')}",
+                    "R\$ ${AppFormatters.dinheiro(totalVenda)}",
                     style: const TextStyle(
                       fontSize: 32,
                       fontWeight: FontWeight.bold,

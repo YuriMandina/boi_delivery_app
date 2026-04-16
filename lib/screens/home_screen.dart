@@ -4,6 +4,8 @@ import '../database/db_helper.dart';
 import '../services/api_service.dart';
 import 'venda_screen.dart';
 import 'relatorio_screen.dart';
+import 'recibo_screen.dart';
+import '../utils/formatters.dart';
 import '../main.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -326,6 +328,8 @@ class _HomeScreenState extends State<HomeScreen> {
 
     showModalBottomSheet(
       context: context,
+      isScrollControlled:
+          true, // Permite que o bottom sheet se adapte melhor ao ecrã
       builder: (ctx) => SafeArea(
         child: Padding(
           padding: const EdgeInsets.all(24),
@@ -340,6 +344,29 @@ class _HomeScreenState extends State<HomeScreen> {
                 ),
               ),
               const Divider(height: 32),
+
+              // === OPÇÃO DISPONÍVEL PARA AMBOS OS ESTADOS (PENDENTE OU ENVIADO) ===
+              ListTile(
+                leading: const Icon(
+                  Icons.receipt_long,
+                  color: Colors.blueGrey,
+                  size: 32,
+                ),
+                title: const Text(
+                  "Visualizar / Imprimir Talão",
+                  style: TextStyle(fontSize: 18),
+                ),
+                onTap: () {
+                  Navigator.pop(ctx);
+                  Navigator.push(
+                    context,
+                    MaterialPageRoute(
+                      builder: (context) => ReciboScreen(venda: venda),
+                    ),
+                  );
+                },
+              ),
+
               if (isPendente) ...[
                 ListTile(
                   leading: const Icon(Icons.edit, color: Colors.blue, size: 32),
@@ -389,22 +416,15 @@ class _HomeScreenState extends State<HomeScreen> {
                   },
                 ),
               ] else ...[
-                const Icon(Icons.verified_user, color: Colors.green, size: 64),
                 const SizedBox(height: 16),
+                const Icon(Icons.verified_user, color: Colors.green, size: 48),
+                const SizedBox(height: 8),
                 const Text(
-                  "Esta nota já foi transmitida ao ERP.\nPara alterações, contate o escritório.",
+                  "Esta nota já foi transmitida ao ERP.\nPara alterações financeiras, contate o escritório.",
                   textAlign: TextAlign.center,
-                  style: TextStyle(color: Colors.grey, fontSize: 16),
+                  style: TextStyle(color: Colors.grey, fontSize: 14),
                 ),
-                const SizedBox(height: 16),
-                SizedBox(
-                  width: double.infinity,
-                  child: ElevatedButton.icon(
-                    onPressed: () => Navigator.pop(ctx),
-                    icon: const Icon(Icons.print),
-                    label: const Text("REIMPRIMIR TALÃO"),
-                  ),
-                ),
+                const SizedBox(height: 8),
               ],
             ],
           ),
@@ -601,6 +621,7 @@ class _HomeScreenState extends State<HomeScreen> {
                       final venda = vendas[index];
                       final isPendente =
                           venda['status_sincronizacao'] == 'pendente';
+
                       return Card(
                         child: InkWell(
                           onTap: () => _mostrarOpcoesVenda(venda),
@@ -681,8 +702,9 @@ class _HomeScreenState extends State<HomeScreen> {
                                         ),
                                       ],
                                     ),
+                                    // === AQUI ACONTECE A MÁGICA DA FORMATAÇÃO ===
                                     Text(
-                                      "R\$ ${(venda['valor_total'] as num).toStringAsFixed(2).replaceAll('.', ',')}",
+                                      "R\$ ${AppFormatters.dinheiro((venda['valor_total'] as num).toDouble())}",
                                       style: TextStyle(
                                         fontSize: 24,
                                         fontWeight: FontWeight.bold,
