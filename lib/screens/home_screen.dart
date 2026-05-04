@@ -7,6 +7,7 @@ import 'relatorio_screen.dart';
 import 'recibo_screen.dart';
 import '../utils/formatters.dart';
 import '../main.dart';
+import 'cadastro_cliente_screen.dart';
 
 class HomeScreen extends StatefulWidget {
   const HomeScreen({Key? key}) : super(key: key);
@@ -482,9 +483,17 @@ class _HomeScreenState extends State<HomeScreen> {
           const Divider(),
           ListTile(
             leading: const Icon(Icons.person_add_alt_1),
-            title: const Text('Cadastro de Emergência'),
-            subtitle: const Text('Novo Cliente Offline'),
-            onTap: () => Navigator.pop(context),
+            title: const Text('Cadastrar Novo Cliente'),
+            onTap: () async {
+              Navigator.pop(context);
+              final cadastrou = await Navigator.push(
+                context,
+                MaterialPageRoute(
+                  builder: (context) => const CadastroClienteScreen(),
+                ),
+              );
+              if (cadastrou == true) _carregarDadosBase();
+            },
           ),
           ListTile(
             leading: const Icon(Icons.print_outlined),

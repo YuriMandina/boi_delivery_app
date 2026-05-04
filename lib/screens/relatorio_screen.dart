@@ -1,8 +1,10 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
 import 'dart:math';
+import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import '../database/db_helper.dart';
 import '../utils/formatters.dart';
+import '../services/printer_service.dart';
 
 class RelatorioScreen extends StatefulWidget {
   final DateTime dataRelatorio;
@@ -16,10 +18,12 @@ class RelatorioScreen extends StatefulWidget {
 
 class _RelatorioScreenState extends State<RelatorioScreen> {
   bool isLoading = true;
+  bool isPrinting = false;
   String reciboTexto = "";
 
-  // Arquitetura de Layout: 48 Colunas
+  // Arquitetura de Layout: 48 Colunas (Padrão 80mm)
   final int _maxColunas = 48;
+  final PrinterService _printerService = PrinterService();
 
   @override
   void initState() {
@@ -120,11 +124,9 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
     String sepForte = "=" * _maxColunas;
     String sepFraco = "-" * _maxColunas;
 
-    // ================= CONSTRUÇÃO DO RELATÓRIO DETALHADO =================
-    bool isPrimeiraNota = true; // Controlador do separador
+    bool isPrimeiraNota = true; 
 
     for (var venda in vendas) {
-      // AQUI: Injeta um separador visual forte antes do próximo cliente (exceto no primeiro)
       if (!isPrimeiraNota) {
         sbDetalhado.writeln(sepForte);
         sbDetalhado.writeln("");
@@ -223,7 +225,6 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
       sbDetalhado.writeln("");
     }
 
-    // Cálculos de Resumo de Peças
     double paresCompletos = min(
       totalPecasDianteiro,
       totalPecasTraseiroOuSerrote,
@@ -238,7 +239,6 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
 
     StringBuffer sb = StringBuffer();
 
-    // ================= RESUMO GERAL DA ROTA =================
     sb.writeln(sepForte);
     sb.writeln(_centralizar("BOI DELIVERY", _maxColunas));
     sb.writeln(_centralizar("FECHAMENTO DE ROTA", _maxColunas));
@@ -250,7 +250,6 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
     sb.writeln(sepFraco);
     sb.writeln("");
 
-    // SECÇÃO 1
     sb.writeln("1. CONVERSAO DE REIS (CASSE)");
     sb.writeln(sepFraco);
     if (totalReisFinal > 0) {
@@ -274,7 +273,6 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
     sb.writeln(sepFraco);
     sb.writeln("");
 
-    // SECÇÃO 2
     sb.writeln("2. RESUMO DE KG: CARCACAS BOVINAS");
     sb.writeln(sepFraco);
     if (mapPesosReis.isEmpty) {
@@ -297,7 +295,6 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
     sb.writeln(sepFraco);
     sb.writeln("");
 
-    // SECÇÃO 3
     sb.writeln("3. RESUMO DE KG: CORTES AVULSOS / MIUDOS");
     sb.writeln(sepFraco);
     if (mapPesosMiudos.isEmpty) {
@@ -318,7 +315,6 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
       );
     }
 
-    // FECHAMENTO DO RESUMO (Total Geral)
     sb.writeln(sepForte);
     sb.writeln(
       _alinharDuas(
@@ -330,7 +326,6 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
     sb.writeln(sepForte);
     sb.writeln("\n\n");
 
-    // ================= ANEXANDO RELATÓRIO DETALHADO =================
     sb.writeln(sepForte);
     sb.writeln(_centralizar("RELATORIO DETALHADO POR CLIENTE", _maxColunas));
     sb.writeln(sepForte);
@@ -361,11 +356,129 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
     return "${" " * padding}$texto";
   }
 
+  // --- MÓDULO DE IMPRESSÃO B2B ---
+  void _iniciarProcessoImpressao() async {
+    setState(() => isPrinting = true);
+    
+    List<BluetoothDevice> dispositivos = await _printerService.obterDispositivos();
+    
+    setState(() => isPrinting = false);
+
+    if (dispositivos.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Nenhuma impressora Bluetooth pareada no tablet.", style: TextStyle(fontSize: 16)),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (mounted) {
+      showModalBottomSheet(
+        context: context,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (ctx) {
+          return Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  "Selecione a Impressora",
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: dispositivos.length,
+                    itemBuilder: (context, index) {
+                      final device = dispositivos[index];
+                      return Card(
+                        elevation: 2,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          leading: const Icon(Icons.print, size: 36, color: Colors.blueGrey),
+                          title: Text(device.name ?? "Dispositivo Desconhecido", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          subtitle: Text(device.address ?? ""),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _conectarEImprimir(device);
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
+  }
+
+  Future<void> _conectarEImprimir(BluetoothDevice device) async {
+    setState(() => isPrinting = true);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const CircularProgressIndicator(color: Colors.white),
+            const SizedBox(width: 16),
+            Text("Conectando a ${device.name}..."),
+          ],
+        ),
+        duration: const Duration(days: 1),
+        backgroundColor: Colors.blueGrey,
+      ),
+    );
+
+    bool sucessoConexao = await _printerService.conectar(device);
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    if (!sucessoConexao) {
+      setState(() => isPrinting = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Falha ao conectar. Impressora ligada?"), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    }
+
+    bool sucessoImpressao = await _printerService.imprimirTexto(reciboTexto);
+    await _printerService.desconectar();
+    
+    setState(() => isPrinting = false);
+
+    if (sucessoImpressao) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Relatório impresso com sucesso!"), backgroundColor: Colors.green),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Erro ao enviar dados para impressão."), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: const Text('Pre-Visualizacao de Impressao'),
+        title: const Text('Pré-Visualização de Impressão'),
         backgroundColor: Colors.blueGrey[900],
         foregroundColor: Colors.white,
       ),
@@ -409,10 +522,12 @@ class _RelatorioScreenState extends State<RelatorioScreen> {
               ),
             ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {},
-        icon: const Icon(Icons.print),
-        label: const Text("TESTAR IMPRESSORA"),
-        backgroundColor: Colors.blueGrey[900],
+        onPressed: isPrinting ? null : _iniciarProcessoImpressao,
+        icon: isPrinting 
+            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
+            : const Icon(Icons.print),
+        label: Text(isPrinting ? "PROCESSANDO..." : "IMPRIMIR RELATÓRIO"),
+        backgroundColor: isPrinting ? Colors.grey : Colors.blueGrey[900],
       ),
     );
   }

@@ -1,7 +1,9 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:blue_thermal_printer/blue_thermal_printer.dart';
 import '../database/db_helper.dart';
 import '../utils/formatters.dart';
+import '../services/printer_service.dart';
 
 class ReciboScreen extends StatefulWidget {
   final Map<String, dynamic> venda;
@@ -14,10 +16,13 @@ class ReciboScreen extends StatefulWidget {
 
 class _ReciboScreenState extends State<ReciboScreen> {
   bool isLoading = true;
+  bool isPrinting = false; 
   String reciboTexto = "";
 
-  // Reduzimos de 48 para 42 colunas (Sweet spot de leitura)
-  final int _maxColunas = 42;
+  // Arquitetura otimizada para Bobina 80mm (Fonte A)
+  final int _maxColunas = 48;
+  
+  final PrinterService _printerService = PrinterService();
 
   @override
   void initState() {
@@ -87,11 +92,9 @@ class _ReciboScreenState extends State<ReciboScreen> {
       }
 
       sb.writeln(sepFraco);
-      // ARQUITETURA DE COLUNAS: Total 48 chars
-      // QTD (14) Esquerda | PECAS (12) Esquerda | V.UN (9) Direita | TOTAL (13) Direita
-      // CABEÇALHO
+      // ARQUITETURA DE COLUNAS: Total 48 chars (10 + 14 + 10 + 14)
       String headerInfo =
-          "${'QTD(KG)'.padRight(12)}${'PECAS'.padRight(9)}${'V.UN'.padLeft(8)}${'TOTAL'.padLeft(13)}";
+          "${'PECAS'.padRight(10)}${'QTD(KG)'.padRight(14)}${'V.UN'.padLeft(10)}${'TOTAL'.padLeft(14)}";
       sb.writeln(headerInfo);
       sb.writeln(sepFraco);
 
@@ -121,14 +124,14 @@ class _ReciboScreenState extends State<ReciboScreen> {
         String obs = item['observacao']?.toString().trim() ?? "";
         if (obs.isNotEmpty) sb.writeln("  Lote/Obs: $obs");
 
-        String sKg = AppFormatters.peso(kg);
         String sPc = _formatarFracao(pDouble);
+        String sKg = AppFormatters.peso(kg);
         String sPr = AppFormatters.dinheiro(preco);
         String sSub = AppFormatters.dinheiro(sub);
 
-        // APLICAÇÃO DO ALINHAMENTO MATEMÁTICO (Substitui o existente)
+        // Aplicação do grid matemático 48 colunas
         String linhaValores =
-            "${sKg.padRight(12)}${sPc.padRight(9)}${sPr.padLeft(8)}${sSub.padLeft(13)}";
+            "${sPc.padRight(10)}${sKg.padRight(14)}${sPr.padLeft(10)}${sSub.padLeft(14)}";
         sb.writeln(linhaValores);
       }
 
@@ -158,6 +161,123 @@ class _ReciboScreenState extends State<ReciboScreen> {
   String _alinharDuas(String e, String d, int tam) =>
       "$e${' ' * (tam - e.length - d.length)}$d";
 
+  void _iniciarProcessoImpressao() async {
+    setState(() => isPrinting = true);
+    
+    List<BluetoothDevice> dispositivos = await _printerService.obterDispositivos();
+    
+    setState(() => isPrinting = false);
+
+    if (dispositivos.isEmpty) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(
+            content: Text("Nenhuma impressora Bluetooth pareada no tablet.", style: TextStyle(fontSize: 16)),
+            backgroundColor: Colors.red,
+            duration: Duration(seconds: 4),
+          ),
+        );
+      }
+      return;
+    }
+
+    if (mounted) {
+      showModalBottomSheet(
+        context: context,
+        shape: const RoundedRectangleBorder(
+          borderRadius: BorderRadius.vertical(top: Radius.circular(24)),
+        ),
+        builder: (ctx) {
+          return Padding(
+            padding: const EdgeInsets.all(24.0),
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const Text(
+                  "Selecione a Impressora",
+                  style: TextStyle(fontSize: 22, fontWeight: FontWeight.bold),
+                ),
+                const SizedBox(height: 16),
+                Expanded(
+                  child: ListView.builder(
+                    itemCount: dispositivos.length,
+                    itemBuilder: (context, index) {
+                      final device = dispositivos[index];
+                      return Card(
+                        elevation: 2,
+                        margin: const EdgeInsets.only(bottom: 12),
+                        child: ListTile(
+                          contentPadding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                          leading: const Icon(Icons.print, size: 36, color: Colors.blueGrey),
+                          title: Text(device.name ?? "Dispositivo Desconhecido", style: const TextStyle(fontSize: 18, fontWeight: FontWeight.bold)),
+                          subtitle: Text(device.address ?? ""),
+                          onTap: () {
+                            Navigator.pop(ctx);
+                            _conectarEImprimir(device);
+                          },
+                        ),
+                      );
+                    },
+                  ),
+                ),
+              ],
+            ),
+          );
+        },
+      );
+    }
+  }
+
+  Future<void> _conectarEImprimir(BluetoothDevice device) async {
+    setState(() => isPrinting = true);
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Row(
+          children: [
+            const CircularProgressIndicator(color: Colors.white),
+            const SizedBox(width: 16),
+            Text("Conectando a ${device.name}..."),
+          ],
+        ),
+        duration: const Duration(days: 1),
+        backgroundColor: Colors.blueGrey,
+      ),
+    );
+
+    bool sucessoConexao = await _printerService.conectar(device);
+    ScaffoldMessenger.of(context).hideCurrentSnackBar();
+
+    if (!sucessoConexao) {
+      setState(() => isPrinting = false);
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Falha ao conectar. Impressora ligada?"), backgroundColor: Colors.red),
+        );
+      }
+      return;
+    }
+
+    bool sucessoImpressao = await _printerService.imprimirTexto(reciboTexto);
+    await _printerService.desconectar();
+    
+    setState(() => isPrinting = false);
+
+    if (sucessoImpressao) {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Impressão enviada com sucesso!"), backgroundColor: Colors.green),
+        );
+      }
+    } else {
+      if (mounted) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          const SnackBar(content: Text("Erro ao enviar dados para impressão."), backgroundColor: Colors.red),
+        );
+      }
+    }
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -177,8 +297,7 @@ class _ReciboScreenState extends State<ReciboScreen> {
                   padding: const EdgeInsets.all(24),
                   color: Colors.white,
                   child: FittedBox(
-                    fit: BoxFit
-                        .scaleDown, // Obriga a encolher se não couber, proibindo a quebra de linha
+                    fit: BoxFit.scaleDown,
                     alignment: Alignment.center,
                     child: Text(
                       reciboTexto,
@@ -195,10 +314,12 @@ class _ReciboScreenState extends State<ReciboScreen> {
               ),
             ),
       floatingActionButton: FloatingActionButton.extended(
-        onPressed: () {},
-        icon: const Icon(Icons.print),
-        label: const Text("IMPRIMIR"),
-        backgroundColor: Colors.blueGrey[900],
+        onPressed: isPrinting ? null : _iniciarProcessoImpressao,
+        icon: isPrinting 
+            ? const SizedBox(width: 24, height: 24, child: CircularProgressIndicator(color: Colors.white, strokeWidth: 2)) 
+            : const Icon(Icons.print),
+        label: Text(isPrinting ? "PROCESSANDO..." : "IMPRIMIR"),
+        backgroundColor: isPrinting ? Colors.grey : Colors.blueGrey[900],
       ),
     );
   }

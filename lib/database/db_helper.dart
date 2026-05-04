@@ -19,14 +19,26 @@ class DBHelper {
     String path = join(await getDatabasesPath(), 'boi_delivery_offline.db');
     return await openDatabase(
       path,
-      version: 2, // Subimos a versão!
+      version: 4, // v4: campos completos em clientes + status_sincronizacao
       onCreate: _onCreate,
       onUpgrade: (db, oldVersion, newVersion) async {
         if (oldVersion < 2) {
-          // Cria a coluna que faltava no celular sem apagar os dados
           await db.execute(
             "ALTER TABLE venda_itens ADD COLUMN observacao TEXT DEFAULT ''",
           );
+        }
+        if (oldVersion < 3) {
+          await db.execute(
+            "ALTER TABLE produtos ADD COLUMN is_produto_banda INTEGER DEFAULT 0",
+          );
+        }
+        if (oldVersion < 4) {
+          await db.execute("ALTER TABLE clientes ADD COLUMN cpf_cnpj TEXT DEFAULT ''");
+          await db.execute("ALTER TABLE clientes ADD COLUMN telefone TEXT DEFAULT ''");
+          await db.execute("ALTER TABLE clientes ADD COLUMN email TEXT DEFAULT ''");
+          await db.execute("ALTER TABLE clientes ADD COLUMN endereco TEXT DEFAULT ''");
+          // 'sincronizado' para clientes que vieram do servidor, 'pendente' para os criados offline
+          await db.execute("ALTER TABLE clientes ADD COLUMN status_sincronizacao TEXT DEFAULT 'sincronizado'");
         }
       },
     );
@@ -34,11 +46,16 @@ class DBHelper {
 
   // Criação das tabelas locais (Espelho simplificado do seu PostgreSQL)
   Future<void> _onCreate(Database db, int version) async {
-    // 1. Tabela de Clientes
+    // 1. Tabela de Clientes (schema completo)
     await db.execute('''
       CREATE TABLE clientes(
         id INTEGER PRIMARY KEY,
-        nome TEXT
+        nome TEXT,
+        cpf_cnpj TEXT DEFAULT '',
+        telefone TEXT DEFAULT '',
+        email TEXT DEFAULT '',
+        endereco TEXT DEFAULT '',
+        status_sincronizacao TEXT DEFAULT 'sincronizado'
       )
     ''');
 
@@ -48,7 +65,8 @@ class DBHelper {
         id INTEGER PRIMARY KEY,
         nome TEXT,
         preco REAL,
-        tipo_unidade TEXT
+        tipo_unidade TEXT,
+        is_produto_banda INTEGER DEFAULT 0
       )
     ''');
 

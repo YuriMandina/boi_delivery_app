@@ -47,6 +47,9 @@ dependencies:
   provider: ^6.1.2
   intl: ^0.20.2
 
+  # 5. Impressora Térmica Bluetooth
+  blue_thermal_printer: ^1.2.3
+
 dev_dependencies:
   flutter_test:
     sdk: flutter

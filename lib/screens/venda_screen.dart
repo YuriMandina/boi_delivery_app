@@ -46,10 +46,14 @@ class _VendaScreenState extends State<VendaScreen> {
 
       final cli = clis.firstWhere(
         (c) => c['id'] == widget.vendaEdicao!['cliente_id'],
+        orElse: () => {'id': 0, 'nome': 'Cliente Desconhecido'},
       );
+      
       setState(() {
-        clienteSelecionado = cli;
-        nomeCliente = cli['nome'] as String;
+        if (cli['id'] != 0) {
+          clienteSelecionado = cli;
+          nomeCliente = cli['nome'] as String;
+        }
       });
 
       final itensDb = await db.query(
@@ -59,7 +63,7 @@ class _VendaScreenState extends State<VendaScreen> {
       );
       List<Map<String, dynamic>> carrinhoCarregado = [];
       for (var item in itensDb) {
-        final p = prods.firstWhere((prod) => prod['id'] == item['produto_id']);
+        final p = prods.firstWhere((prod) => prod['id'] == item['produto_id'], orElse: () => {'nome': 'Desconhecido', 'is_produto_banda': 0, 'preco': 0.0});
         carrinhoCarregado.add({
           "produto_id": item['produto_id'],
           "nome": p['nome'],
@@ -79,8 +83,6 @@ class _VendaScreenState extends State<VendaScreen> {
         'SELECT MAX(id) as max_id FROM vendas',
       );
       int nextId = ((maxQuery.first['max_id'] as int?) ?? 0) + 1;
-
-      // ALTERAÇÃO: Removido o prefixo "APP-" e ajustado para 4 dígitos para melhor leitura
       setState(() => numeroNota = nextId.toString().padLeft(4, '0'));
     }
   }
@@ -132,7 +134,6 @@ class _VendaScreenState extends State<VendaScreen> {
 
     if (escolhida != null) {
       setState(() {
-        // CORREÇÃO: Preserva a hora, minuto e segundo originais ao alterar a data
         dataVenda = DateTime(
           escolhida.year,
           escolhida.month,
@@ -146,7 +147,6 @@ class _VendaScreenState extends State<VendaScreen> {
   }
 
   void _abrirSelecaoCliente() {
-    if (widget.vendaEdicao != null) return;
     showModalBottomSheet(
       context: context,
       builder: (ctx) => Padding(
@@ -256,17 +256,23 @@ class _VendaScreenState extends State<VendaScreen> {
     TextEditingController precoCtrl = TextEditingController(
       text: itemExistente != null
           ? itemExistente['preco_unitario'].toStringAsFixed(2)
-          : produto['preco'].toStringAsFixed(2),
+          : (produto['preco'] ?? 0.0).toStringAsFixed(2),
     );
     TextEditingController obsCtrl = TextEditingController(
       text: itemExistente != null ? itemExistente['observacao'] : "",
     );
 
-    bool isReis =
-        produto['id'] == 1 ||
-        produto['nome'].toString().toLowerCase().contains('reis');
-    double stepVal = isReis ? 0.5 : 1.0;
-    double minVal = isReis ? 0.0 : 1.0;
+    // ==========================================
+    // B2B ARCHITECTURE: CONFIANÇA ESTREITA NO SQLITE 
+    // ==========================================
+    var flagBanda = produto['is_produto_banda'];
+    
+    // Agora confiamos APENAS no banco de dados. 
+    // Se o step saltar de 1 em 1, é porque a flag está 0 no SQLite.
+    bool isBanda = flagBanda == 1 || flagBanda == true || flagBanda.toString() == '1';
+
+    double stepVal = isBanda ? 0.5 : 1.0;
+    double minVal = isBanda ? 0.0 : 1.0;
 
     double pecasDouble = minVal;
 
@@ -308,7 +314,7 @@ class _VendaScreenState extends State<VendaScreen> {
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        isReis
+                        isBanda
                             ? "Quantidade de Peças (Múltiplos de 1/2)"
                             : "Quantidade de Peças (Obrigatório Mínimo 1)",
                         style: const TextStyle(
@@ -346,11 +352,7 @@ class _VendaScreenState extends State<VendaScreen> {
                             ),
                           ),
                           Text(
-                            pecasDouble == 0
-                                ? "Nenhuma"
-                                : (pecasDouble % 1 == 0
-                                      ? pecasDouble.toInt().toString()
-                                      : pecasDouble.toString()),
+                            AppFormatters.pecasTratadas(pecasDouble, exibirTextoZero: true),
                             style: const TextStyle(
                               fontSize: 28,
                               fontWeight: FontWeight.bold,
@@ -477,6 +479,7 @@ class _VendaScreenState extends State<VendaScreen> {
         await db.update(
           'vendas',
           {
+            'cliente_id': clienteSelecionado!['id'],
             'numero_nota': numeroNota,
             'data_venda': dataVenda.toIso8601String(),
             'valor_total': totalVenda,
@@ -620,22 +623,29 @@ class _VendaScreenState extends State<VendaScreen> {
                       final item = carrinho[index];
                       String pecasVisuais = "";
                       if (item['quantidade_pecas'] != "") {
-                        double p =
-                            double.tryParse(item['quantidade_pecas']) ?? 0;
-                        if (p > 0) pecasVisuais = " ($p PC)";
+                        double p = double.tryParse(item['quantidade_pecas'].toString().replaceAll(',', '.')) ?? 0;
+                        if (p > 0) pecasVisuais = " (${AppFormatters.pecasTratadas(p)} PC)";
                       }
 
                       return Card(
                         child: InkWell(
-                          onTap: () => _configurarProduto(
-                            {
-                              "id": item['produto_id'],
-                              "nome": item['nome'],
-                              "preco": item['preco_unitario'],
-                            },
-                            indexEdicao: index,
-                            itemExistente: item,
-                          ),
+                          onTap: () {
+                            final produtoOriginal = produtosAtivos.firstWhere(
+                              (p) => p['id'] == item['produto_id'],
+                              orElse: () => {
+                                "id": item['produto_id'],
+                                "nome": item['nome'],
+                                "preco": item['preco_unitario'],
+                                "is_produto_banda": 0
+                              }
+                            );
+                            
+                            _configurarProduto(
+                              produtoOriginal,
+                              indexEdicao: index,
+                              itemExistente: item,
+                            );
+                          },
                           child: Padding(
                             padding: const EdgeInsets.all(16.0),
                             child: Row(
